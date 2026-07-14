@@ -1,0 +1,6 @@
+{
+  "name": "Ser o Estar",
+  "description": "A modern website for Iniciativa Ser o Estar Spanish Language Academy, containing courses, methodology, testimonials, and tips to master the Spanish language.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
