@@ -1425,6 +1425,15 @@ Spanish:
                     ? "bg-slate-900"
                     : "bg-indigo-950";
 
+                const courseSubtitle =
+                  courseLang === "EN"
+                    ? "Designed for Beginners"
+                    : course.id === "a1"
+                    ? "Da tus primeros pasos."
+                    : course.id === "a2"
+                    ? "Fortalece tu comunicación diaria"
+                    : "Exprésate con fluidez";
+
                 return (
                   <motion.div
                     key={course.id}
@@ -1442,14 +1451,14 @@ Spanish:
                         {course.title}
                       </h3>
                       <p className="text-[11px] text-slate-400 mt-1 uppercase tracking-wide">
-                        {courseLang === "EN" ? "Designed for Beginners" : "Diseñado para Principiantes"}
+                        {courseSubtitle}
                       </p>
                     </div>
 
                     {/* Course Outline Dynamic Tabs Navigation */}
                     <div className="px-6 pt-6 shrink-0">
                       {/* Desktop View Tabs (lg and above) */}
-                      <div className="hidden lg:grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/60">
+                      <div className="hidden lg:grid grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/60">
                         {(["objectives", "vocabulary", "grammar", "speaking"] as const).map((tab) => {
                           const tabLabels = {
                             objectives: courseLang === "EN" ? "Objectives" : "Objetivos",
@@ -1462,7 +1471,7 @@ Spanish:
                             <button
                               key={tab}
                               onClick={() => setCourseActiveTab(prev => ({ ...prev, [course.id]: tab }))}
-                              className={`py-2 px-0.5 text-[9.5px] font-sans font-black uppercase tracking-wider rounded-xl transition-all duration-200 cursor-pointer text-center ${
+                              className={`min-w-0 whitespace-nowrap py-2 px-1 text-[8.5px] xl:text-[9px] font-sans font-black uppercase tracking-normal rounded-xl transition-all duration-200 cursor-pointer text-center ${
                                 active
                                   ? "bg-white text-orange-600 shadow-xs"
                                   : "text-slate-500 hover:text-slate-850"
