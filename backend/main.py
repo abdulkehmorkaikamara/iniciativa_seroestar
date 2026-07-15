@@ -2,9 +2,15 @@ import json
 import os
 import random
 import re
+import hashlib
+import html
+import smtplib
+import ssl
 import subprocess
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import List, Dict, Set
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +50,7 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 RECORDING_WEBHOOK_SECRET = os.getenv("RECORDING_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+PASSWORD_RESET_RESPONSE = "If a student account exists for this email, a password-reset link has been sent."
 
 if ENVIRONMENT == "production":
     missing_settings = [
@@ -75,6 +82,90 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _password_reset_app_url(request: Request) -> str:
+    configured_url = os.getenv("APP_URL", "").strip().rstrip("/")
+    if configured_url:
+        return configured_url
+    origin = request.headers.get("origin", "").strip().rstrip("/")
+    if origin:
+        return origin
+    if VERCEL_URL:
+        return f"https://{VERCEL_URL}"
+    return str(request.base_url).rstrip("/")
+
+
+def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASS", "")
+    from_email = os.getenv("SMTP_FROM_EMAIL", "").strip() or smtp_user
+    from_name = os.getenv("SMTP_FROM_NAME", "Iniciativa Ser o Estar").strip()
+    if not smtp_host or not smtp_user or not smtp_password or not from_email:
+        return False
+
+    safe_name = html.escape(full_name or "Student")
+    safe_url = html.escape(reset_url, quote=True)
+    message = EmailMessage()
+    message["Subject"] = "Reset your Iniciativa Ser o Estar password"
+    message["From"] = f"{from_name} <{from_email}>"
+    message["To"] = recipient
+    message.set_content(
+        f"Hello {full_name or 'Student'},\n\n"
+        "We received a request to reset your Iniciativa Ser o Estar student password.\n"
+        f"Open this link within 20 minutes: {reset_url}\n\n"
+        "If you did not request this change, you can safely ignore this email.\n\n"
+        "Iniciativa Ser o Estar"
+    )
+    message.add_alternative(
+        f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
+          <h2 style="color:#0f766e">Reset your password</h2>
+          <p>Hello {safe_name},</p>
+          <p>We received a request to reset your Iniciativa Ser o Estar student password.</p>
+          <p><a href="{safe_url}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Create a new password</a></p>
+          <p>This secure link expires in 20 minutes and can only be used once.</p>
+          <p style="color:#64748b;font-size:13px">If you did not request this change, you can safely ignore this email.</p>
+        </div>
+        """,
+        subtype="html",
+    )
+
+    if smtp_port == 465:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12, context=ssl.create_default_context()) as smtp:
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    return True
+
+
+def _password_reset_request_allowed(request: Request, email: str) -> bool:
+    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+    client_ip = request.client.host if request.client else "unknown"
+    email_key = hashlib.sha256(email.lower().encode("utf-8")).hexdigest()
+    key = f"{client_ip}:{email_key}"
+    window_seconds = 15 * 60
+    max_requests = 3
+    if not hasattr(_password_reset_request_allowed, "requests"):
+        _password_reset_request_allowed.requests = {}
+    requests = _password_reset_request_allowed.requests
+    entry = requests.get(key, {"count": 0, "first_ts": now_ts})
+    if now_ts - entry["first_ts"] > window_seconds:
+        entry = {"count": 0, "first_ts": now_ts}
+    if entry["count"] >= max_requests:
+        requests[key] = entry
+        return False
+    entry["count"] += 1
+    requests[key] = entry
+    return True
 
 
 @app.get("/api/health")
@@ -653,6 +744,53 @@ def create_admin_teacher(payload: schemas.TeacherCreate, request: Request, db: S
         "assigned_levels": [level.strip() for level in profile.assigned_levels.split(",") if level.strip()],
         "role": user.role,
     }
+
+@app.post("/api/password/forgot", status_code=status.HTTP_202_ACCEPTED)
+def request_password_reset(payload: schemas.PasswordForgotRequest, request: Request, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+    if not _password_reset_request_allowed(request, email):
+        return {"detail": PASSWORD_RESET_RESPONSE}
+
+    user = db.query(models.User).filter(models.User.email == email, models.User.role == "student").first()
+    if user:
+        token = auth.create_password_reset_token(user.id, user.email, user.hashed_password)
+        query = urllib.parse.urlencode({"reset_token": token})
+        reset_url = f"{_password_reset_app_url(request)}/?{query}"
+        try:
+            sent = _send_password_reset_email(user.email, user.full_name, reset_url)
+            if not sent:
+                if ENVIRONMENT != "production":
+                    print(f"[PASSWORD RESET DEVELOPMENT LINK] {reset_url}")
+                else:
+                    print("Password reset email was not sent because SMTP is not configured.")
+        except Exception as exc:
+            print(f"Password reset email delivery failed: {type(exc).__name__}")
+
+    return {"detail": PASSWORD_RESET_RESPONSE}
+
+
+@app.post("/api/password/reset")
+def reset_student_password(payload: schemas.PasswordResetRequest, response: Response, db: Session = Depends(get_db)):
+    try:
+        reset_claims = auth.decode_password_reset_token(payload.token)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="This password reset link is invalid or has expired.")
+
+    user = db.query(models.User).filter(
+        models.User.id == reset_claims.get("id"),
+        models.User.email == str(reset_claims.get("sub", "")).lower(),
+        models.User.role == "student",
+    ).first()
+    if not user or auth.password_hash_fingerprint(user.hashed_password) != reset_claims.get("pwd"):
+        raise HTTPException(status_code=400, detail="This password reset link is invalid or has already been used.")
+    if auth.verify_password(payload.new_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Choose a password you have not used for this account.")
+
+    user.hashed_password = auth.get_password_hash(payload.new_password)
+    db.commit()
+    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite="lax")
+    return {"detail": "Your password has been reset successfully. You can now sign in."}
+
 
 @app.post("/api/login")
 def login(request: Request, payload: schemas.LoginRequest, response: Response, db: Session = Depends(get_db)):

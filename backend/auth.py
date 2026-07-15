@@ -1,5 +1,6 @@
 import os
 import secrets
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
@@ -16,6 +17,7 @@ if not SECRET_KEY:
     SECRET_KEY = secrets.token_urlsafe(48)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 240
+PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 20
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/login")
@@ -46,3 +48,27 @@ def decode_token(token: str) -> dict:
             detail="Could not validate dynamic access token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+def password_hash_fingerprint(hashed_password: str) -> str:
+    return hashlib.sha256(hashed_password.encode("utf-8")).hexdigest()
+
+def create_password_reset_token(user_id: int, email: str, hashed_password: str) -> str:
+    return create_access_token(
+        {
+            "sub": email.lower(),
+            "id": user_id,
+            "purpose": "password_reset",
+            "pwd": password_hash_fingerprint(hashed_password),
+            "nonce": secrets.token_urlsafe(16),
+        },
+        expires_delta=timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRE_MINUTES),
+    )
+
+def decode_password_reset_token(token: str) -> dict:
+    payload = decode_token(token)
+    if payload.get("purpose") != "password_reset" or not payload.get("id") or not payload.get("pwd"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This password reset link is invalid or has expired.",
+        )
+    return payload

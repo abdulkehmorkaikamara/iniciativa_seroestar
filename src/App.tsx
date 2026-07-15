@@ -368,7 +368,9 @@ Las personas bilingües pueden mostrar síntomas de deterioro cognitivo entre **
 
 export default function App() {
   // Portals & Role-Based Core State
-  const [currentPortal, setCurrentPortal] = useState<"student" | "teacher" | "admin" | null>(null);
+  const [currentPortal, setCurrentPortal] = useState<"student" | "teacher" | "admin" | null>(() =>
+    new URLSearchParams(window.location.search).has("reset_token") ? "student" : null
+  );
   const [registeredStudent, setRegisteredStudent] = useState<any | null>(null);
   const [studentSession, setStudentSession] = useState<any | null>(null);
   const [teacherSession, setTeacherSession] = useState<any | null>(null);
