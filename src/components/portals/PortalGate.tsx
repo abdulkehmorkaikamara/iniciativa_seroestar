@@ -26,7 +26,12 @@ interface PortalGateProps {
 }
 
 export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: PortalGateProps) {
-  const resetToken = role === "student" ? new URLSearchParams(window.location.search).get("reset_token") || "" : "";
+  const canResetPassword = role === "student" || role === "teacher";
+  const resetParams = new URLSearchParams(window.location.search);
+  const requestedResetRole = resetParams.get("reset_role");
+  const resetToken = canResetPassword && (!requestedResetRole || requestedResetRole === role)
+    ? resetParams.get("reset_token") || ""
+    : "";
   const [authMode, setAuthMode] = useState<"login" | "forgot" | "reset">(resetToken ? "reset" : "login");
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
@@ -46,7 +51,7 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
   const t = TRANSLATIONS[lang];
   const enableDemoAuth = false;
 
-  const returnToStudentLogin = () => {
+  const returnToLogin = () => {
     window.history.replaceState({}, "", window.location.pathname);
     setAuthMode("login");
     setIsRegister(false);
@@ -77,8 +82,8 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
       }
       setSuccessMessage(
         lang === "ES"
-          ? "Si existe una cuenta de estudiante con este correo, se ha enviado un enlace para restablecer la contraseña."
-          : "If a student account exists for this email, a password-reset link has been sent."
+          ? "Si existe una cuenta elegible con este correo, se ha enviado un enlace para restablecer la contraseña."
+          : "If an eligible account exists for this email, a password-reset link has been sent."
       );
     } catch {
       setError(lang === "ES" ? "El servicio de recuperación no está disponible temporalmente." : "The recovery service is temporarily unavailable.");
@@ -434,26 +439,26 @@ May 2026`,
                t.gateDevOnly}
             </span>
             <h2 className="font-sans font-black text-slate-900 text-lg uppercase tracking-tight">
-              {role === "student" ? (
-                authMode === "forgot"
+              {canResetPassword && authMode === "forgot"
                   ? (lang === "ES" ? "RECUPERAR CONTRASEÑA" : "RESET YOUR PASSWORD")
-                  : authMode === "reset"
+                  : canResetPassword && authMode === "reset"
                   ? (lang === "ES" ? "CREAR NUEVA CONTRASEÑA" : "CREATE A NEW PASSWORD")
-                  : (isRegister ? t.gateCreateStudent : t.gateStudentSignIn)
-              ) :
-               role === "teacher" ? t.gateTeacherAuth :
-               t.gateRootDevShell}
+                  : role === "student"
+                  ? (isRegister ? t.gateCreateStudent : t.gateStudentSignIn)
+                  : role === "teacher"
+                  ? t.gateTeacherAuth
+                  : t.gateRootDevShell}
             </h2>
             <p className="text-xs text-slate-400 max-w-xs mx-auto">
-              {role === "student" ? (
-                authMode === "forgot"
-                  ? (lang === "ES" ? "Introduce el correo registrado del estudiante y te enviaremos un enlace seguro." : "Enter the student's registered email and we will send a secure reset link.")
-                  : authMode === "reset"
+              {canResetPassword && authMode === "forgot"
+                  ? (lang === "ES" ? "Introduce el correo registrado de tu cuenta y te enviaremos un enlace seguro." : "Enter your account's registered email and we will send a secure reset link.")
+                  : canResetPassword && authMode === "reset"
                   ? (lang === "ES" ? "Elige una contraseña segura de al menos 12 caracteres." : "Choose a secure password containing at least 12 characters.")
-                  : t.gateStudentDesc
-              ) :
-               role === "teacher" ? t.gateTeacherDesc :
-               t.gateDevDesc}
+                  : role === "student"
+                  ? t.gateStudentDesc
+                  : role === "teacher"
+                  ? t.gateTeacherDesc
+                  : t.gateDevDesc}
             </p>
           </div>
         </div>
@@ -538,7 +543,7 @@ May 2026`,
             </div>
           </div>
 
-          {role === "student" && !isRegister && (
+          {canResetPassword && !isRegister && (
             <div className="text-right -mt-1">
               <button
                 type="button"
@@ -610,13 +615,15 @@ May 2026`,
           <form onSubmit={handleForgotPassword} className="space-y-4">
             <div className="space-y-1.5 text-left">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                {lang === "ES" ? "Correo registrado del estudiante" : "Registered student email"}
+                {role === "teacher"
+                  ? (lang === "ES" ? "Correo registrado del profesor" : "Registered teacher email")
+                  : (lang === "ES" ? "Correo registrado del estudiante" : "Registered student email")}
               </label>
               <div className="relative">
                 <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="email"
-                  placeholder={t.gateEmailPlaceholder}
+                  placeholder={role === "teacher" ? "tutor@seroestar.com" : t.gateEmailPlaceholder}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
@@ -633,7 +640,7 @@ May 2026`,
             </button>
             <button
               type="button"
-              onClick={returnToStudentLogin}
+              onClick={returnToLogin}
               className="w-full text-xs text-slate-500 hover:text-teal-700 font-semibold cursor-pointer"
             >
               {lang === "ES" ? "Volver al inicio de sesión" : "Return to sign in"}

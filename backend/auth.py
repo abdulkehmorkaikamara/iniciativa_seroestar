@@ -52,11 +52,14 @@ def decode_token(token: str) -> dict:
 def password_hash_fingerprint(hashed_password: str) -> str:
     return hashlib.sha256(hashed_password.encode("utf-8")).hexdigest()
 
-def create_password_reset_token(user_id: int, email: str, hashed_password: str) -> str:
+def create_password_reset_token(user_id: int, email: str, hashed_password: str, role: str) -> str:
+    if role not in {"student", "teacher"}:
+        raise ValueError("Password recovery is only available for student and teacher accounts.")
     return create_access_token(
         {
             "sub": email.lower(),
             "id": user_id,
+            "role": role,
             "purpose": "password_reset",
             "pwd": password_hash_fingerprint(hashed_password),
             "nonce": secrets.token_urlsafe(16),
@@ -66,7 +69,12 @@ def create_password_reset_token(user_id: int, email: str, hashed_password: str) 
 
 def decode_password_reset_token(token: str) -> dict:
     payload = decode_token(token)
-    if payload.get("purpose") != "password_reset" or not payload.get("id") or not payload.get("pwd"):
+    if (
+        payload.get("purpose") != "password_reset"
+        or not payload.get("id")
+        or not payload.get("pwd")
+        or payload.get("role") not in {"student", "teacher"}
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This password reset link is invalid or has expired.",

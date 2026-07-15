@@ -50,7 +50,7 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 RECORDING_WEBHOOK_SECRET = os.getenv("RECORDING_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-PASSWORD_RESET_RESPONSE = "If a student account exists for this email, a password-reset link has been sent."
+PASSWORD_RESET_RESPONSE = "If an eligible account exists for this email, a password-reset link has been sent."
 
 if ENVIRONMENT == "production":
     missing_settings = [
@@ -106,15 +106,15 @@ def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -
     if not smtp_host or not smtp_user or not smtp_password or not from_email:
         return False
 
-    safe_name = html.escape(full_name or "Student")
+    safe_name = html.escape(full_name or "User")
     safe_url = html.escape(reset_url, quote=True)
     message = EmailMessage()
     message["Subject"] = "Reset your Iniciativa Ser o Estar password"
     message["From"] = f"{from_name} <{from_email}>"
     message["To"] = recipient
     message.set_content(
-        f"Hello {full_name or 'Student'},\n\n"
-        "We received a request to reset your Iniciativa Ser o Estar student password.\n"
+        f"Hello {full_name or 'User'},\n\n"
+        "We received a request to reset your Iniciativa Ser o Estar account password.\n"
         f"Open this link within 20 minutes: {reset_url}\n\n"
         "If you did not request this change, you can safely ignore this email.\n\n"
         "Iniciativa Ser o Estar"
@@ -124,7 +124,7 @@ def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -
         <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
           <h2 style="color:#0f766e">Reset your password</h2>
           <p>Hello {safe_name},</p>
-          <p>We received a request to reset your Iniciativa Ser o Estar student password.</p>
+          <p>We received a request to reset your Iniciativa Ser o Estar account password.</p>
           <p><a href="{safe_url}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Create a new password</a></p>
           <p>This secure link expires in 20 minutes and can only be used once.</p>
           <p style="color:#64748b;font-size:13px">If you did not request this change, you can safely ignore this email.</p>
@@ -751,10 +751,13 @@ def request_password_reset(payload: schemas.PasswordForgotRequest, request: Requ
     if not _password_reset_request_allowed(request, email):
         return {"detail": PASSWORD_RESET_RESPONSE}
 
-    user = db.query(models.User).filter(models.User.email == email, models.User.role == "student").first()
+    user = db.query(models.User).filter(
+        models.User.email == email,
+        models.User.role.in_(("student", "teacher")),
+    ).first()
     if user:
-        token = auth.create_password_reset_token(user.id, user.email, user.hashed_password)
-        query = urllib.parse.urlencode({"reset_token": token})
+        token = auth.create_password_reset_token(user.id, user.email, user.hashed_password, user.role)
+        query = urllib.parse.urlencode({"reset_token": token, "reset_role": user.role})
         reset_url = f"{_password_reset_app_url(request)}/?{query}"
         try:
             sent = _send_password_reset_email(user.email, user.full_name, reset_url)
@@ -770,7 +773,7 @@ def request_password_reset(payload: schemas.PasswordForgotRequest, request: Requ
 
 
 @app.post("/api/password/reset")
-def reset_student_password(payload: schemas.PasswordResetRequest, response: Response, db: Session = Depends(get_db)):
+def reset_account_password(payload: schemas.PasswordResetRequest, response: Response, db: Session = Depends(get_db)):
     try:
         reset_claims = auth.decode_password_reset_token(payload.token)
     except HTTPException:
@@ -779,7 +782,8 @@ def reset_student_password(payload: schemas.PasswordResetRequest, response: Resp
     user = db.query(models.User).filter(
         models.User.id == reset_claims.get("id"),
         models.User.email == str(reset_claims.get("sub", "")).lower(),
-        models.User.role == "student",
+        models.User.role == reset_claims.get("role"),
+        models.User.role.in_(("student", "teacher")),
     ).first()
     if not user or auth.password_hash_fingerprint(user.hashed_password) != reset_claims.get("pwd"):
         raise HTTPException(status_code=400, detail="This password reset link is invalid or has already been used.")
