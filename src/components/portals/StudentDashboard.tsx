@@ -182,6 +182,24 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     }
     return baseline;
   });
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`announcement_reads_${student.studentIdCode}`);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
+  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`announcement_deleted_${student.studentIdCode}`);
+      const parsed = saved ? JSON.parse(saved) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Direct Student Grades Tracker
   const [gradesList, setGradesList] = useState<Array<{ id: string; subject: string; score: string; weight: string; date: string; remarks: string }>>(() => {
@@ -386,6 +404,14 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   }, [emails, student.studentIdCode]);
 
   useEffect(() => {
+    localStorage.setItem(`announcement_reads_${student.studentIdCode}`, JSON.stringify(readAnnouncementIds));
+  }, [readAnnouncementIds, student.studentIdCode]);
+
+  useEffect(() => {
+    localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
+  }, [deletedAnnouncementIds, student.studentIdCode]);
+
+  useEffect(() => {
     if (!insideClassRoom || !activeSession?.id) return;
 
     const protocol = window.location.protocol === "https:" ? "wss" : "ws";
@@ -425,6 +451,22 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     setPersonalNotes([newNote, ...personalNotes]);
     setNewNoteTitle("");
     setNewNoteContent("");
+  };
+
+  const handleMarkAnnouncementRead = (id: string) => {
+    setReadAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
+  };
+
+  const handleDeleteReadAnnouncement = (id: string) => {
+    if (!readAnnouncementIds.includes(id)) return;
+    const confirmed = window.confirm(
+      d(
+        "Delete this read message from your portal? The tutor's original announcement will remain available to other students.",
+        "¿Eliminar este mensaje leído de tu portal? El anuncio original del tutor seguirá disponible para los demás estudiantes."
+      )
+    );
+    if (!confirmed) return;
+    setDeletedAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
   };
 
   const handleDeleteNote = (id: string) => {
@@ -611,6 +653,12 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     return matchesSearch && matchesLevel && matchesEnrollment;
   });
 
+  const visibleAnnouncements = announcements.filter(
+    (announcement) =>
+      announcement.courseLevel === student.courseLevel &&
+      !deletedAnnouncementIds.includes(announcement.id)
+  );
+
   const updateLessonProgress = async (lessonId: number, percentWatched: number, lastPositionSeconds: number, completed: boolean) => {
     await fetch(`/api/lessons/${lessonId}/progress?student_id_code=${encodeURIComponent(student.studentIdCode)}`, {
       method: "POST",
@@ -702,18 +750,18 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
       )}
 
       {/* Direct Class Announcements Billboard */}
-      {announcements.filter(ann => ann.courseLevel === student.courseLevel).length > 0 && (
+      {visibleAnnouncements.length > 0 && (
         <div className="space-y-3 font-sans text-left" id="class-announcements-locker">
           <div className="flex items-center space-x-2 text-[10px] font-bold text-teal-850 uppercase tracking-wider">
             <AlertCircle size={13} className="text-teal-600 mb-0.5" />
             <span>{d(`Active Cohort Announcements (${student.courseLevel})`, `Anuncios de Cohorte Activa (${student.courseLevel})`)}</span>
           </div>
-          {announcements
-            .filter(ann => ann.courseLevel === student.courseLevel)
-            .map((ann) => (
+          {visibleAnnouncements.map((ann) => {
+              const isRead = readAnnouncementIds.includes(ann.id);
+              return (
               <div 
                 key={ann.id} 
-                className={`p-5 rounded-2xl border text-xs flex items-start gap-4 transition shadow-xs ${
+                className={`p-5 rounded-2xl border text-xs flex items-start gap-4 transition shadow-xs ${isRead ? "opacity-80" : ""} ${
                   ann.type === "important" ? "bg-rose-50/70 border-rose-200 text-rose-950" :
                   ann.type === "success" ? "bg-emerald-50/70 border-emerald-200 text-emerald-950" :
                   "bg-indigo-50/70 border-indigo-200 text-slate-900"
@@ -726,18 +774,47 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                 }`}>
                   <AlertCircle size={16} />
                 </div>
-                <div className="space-y-1">
+                <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-extrabold text-xs sm:text-sm uppercase tracking-tight">{ann.title}</span>
+                    <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
+                      isRead
+                        ? "bg-slate-100 border-slate-200 text-slate-500"
+                        : "bg-orange-100 border-orange-200 text-orange-700"
+                    }`}>
+                      {isRead ? d("Read", "Leído") : d("Unread", "No leído")}
+                    </span>
                     <span className="text-[10px] bg-white border border-slate-200/50 text-slate-700 font-mono font-bold px-2 py-0.5 rounded-full">
                       {d(`Posted by ${ann.instructor}`, `Publicado por ${ann.instructor}`)}
                     </span>
                     <span className="text-[10px] text-slate-400 font-mono font-medium">{ann.date}</span>
                   </div>
                   <p className="leading-relaxed text-slate-600 font-sans">{ann.text}</p>
+                  <div className="pt-2 flex items-center gap-2">
+                    {!isRead ? (
+                      <button
+                        type="button"
+                        onClick={() => handleMarkAnnouncementRead(ann.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 hover:border-teal-300 hover:text-teal-700 font-bold text-[10px] transition cursor-pointer"
+                      >
+                        <CheckCircle2 size={12} />
+                        <span>{d("Mark as read", "Marcar como leído")}</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteReadAnnouncement(ann.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-rose-200 text-rose-600 hover:bg-rose-50 hover:border-rose-300 font-bold text-[10px] transition cursor-pointer"
+                      >
+                        <Trash2 size={12} />
+                        <span>{d("Delete read message", "Eliminar mensaje leído")}</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
         </div>
       )}
 
