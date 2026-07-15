@@ -298,7 +298,25 @@ async function startServer() {
     if (contentType) {
       res.setHeader("content-type", contentType);
     }
+    const responseHeaders = backendResult.response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = responseHeaders.getSetCookie?.() || [];
+    if (setCookies.length > 0) {
+      res.setHeader("set-cookie", setCookies);
+    } else {
+      const setCookie = backendResult.response.headers.get("set-cookie");
+      if (setCookie) res.setHeader("set-cookie", setCookie);
+    }
     res.status(backendResult.response.status).send(backendResult.bodyText);
+  };
+
+  const requireConfiguredDemoAdminFallback = (req: express.Request, res: express.Response) => {
+    if (!allowDemoAuth) {
+      res.status(502).json({
+        detail: `Backend API unavailable at ${BACKEND_API_URL}. Start or restart the FastAPI server, then sign in again.`,
+      });
+      return false;
+    }
+    return hasAdminKey(req, res);
   };
 
   // API Route: AI Chatbot Endpoint
@@ -793,11 +811,9 @@ May 2026
   });
 
   app.get("/api/admin/students", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
+      if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
         sendBackendResult(res, backendResult);
         return;
       }
@@ -805,13 +821,13 @@ May 2026
       console.warn("Backend student list unavailable, using portal fallback store:", error);
     }
 
+    if (!requireConfiguredDemoAdminFallback(req, res)) return;
+
     const store = await readPortalPeople();
     res.json(store.students.map(storedStudentToAdminList));
   });
 
   app.post("/api/admin/students", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
       if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
@@ -821,6 +837,8 @@ May 2026
     } catch (error) {
       console.warn("Backend student creation unavailable, using portal fallback store:", error);
     }
+
+    if (!requireConfiguredDemoAdminFallback(req, res)) return;
 
     const fullName = String(req.body?.full_name || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase();
@@ -864,17 +882,17 @@ May 2026
   });
 
   app.get("/api/admin/teachers", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
+      if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
         sendBackendResult(res, backendResult);
         return;
       }
     } catch (error) {
       console.warn("Backend teacher list unavailable, using portal fallback store:", error);
     }
+
+    if (!requireConfiguredDemoAdminFallback(req, res)) return;
 
     const store = await readPortalPeople();
     res.json([
@@ -884,8 +902,6 @@ May 2026
   });
 
   app.post("/api/admin/teachers", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
       if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
@@ -895,6 +911,8 @@ May 2026
     } catch (error) {
       console.warn("Backend teacher creation unavailable, using portal fallback store:", error);
     }
+
+    if (!requireConfiguredDemoAdminFallback(req, res)) return;
 
     const fullName = String(req.body?.full_name || "").trim();
     const email = String(req.body?.email || "").trim().toLowerCase();
@@ -948,17 +966,17 @@ May 2026
   });
 
   app.get("/api/admin/teacher-progress", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
+      if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
         sendBackendResult(res, backendResult);
         return;
       }
     } catch (error) {
       console.warn("Backend teacher progress unavailable, using portal fallback store:", error);
     }
+
+    if (!requireConfiguredDemoAdminFallback(req, res)) return;
 
     const store = await readPortalPeople();
     const teachers = [
