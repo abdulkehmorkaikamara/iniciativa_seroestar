@@ -10,6 +10,8 @@ backend/uploads/
 backend/**/__pycache__/
 *.pyc
 .vercel/
+.venv/
+.vscode/
 
 # Local persistent database + cached development JWT key (never commit these)
 backend/data/

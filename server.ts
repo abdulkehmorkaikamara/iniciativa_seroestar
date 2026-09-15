@@ -63,7 +63,7 @@ async function getGeminiClient() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const BACKEND_API_URL = process.env.BACKEND_API_URL || "http://localhost:8000";
 
   // Keep multipart uploads intact so they can be forwarded to FastAPI with the
