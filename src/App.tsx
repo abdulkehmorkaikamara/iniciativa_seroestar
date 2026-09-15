@@ -48,6 +48,8 @@ const TeacherDashboard = React.lazy(() => import("./components/portals/TeacherDa
 const AdminDashboard = React.lazy(() => import("./components/portals/AdminDashboard"));
 const PortalGate = React.lazy(() => import("./components/portals/PortalGate"));
 
+import { normalizeRole } from "./roles";
+
 const HERO_SLIDES_EN = [
   {
     image: "/src/assets/images/spanish_classroom_hero_1782078041463.jpg",
@@ -371,7 +373,8 @@ export default function App() {
   const [currentPortal, setCurrentPortal] = useState<"student" | "teacher" | "admin" | null>(() => {
     const params = new URLSearchParams(window.location.search);
     if (!params.has("reset_token")) return null;
-    return params.get("reset_role") === "teacher" ? "teacher" : "student";
+    // reset_role may arrive as "teacher" (older links) or "tutor" (current).
+    return normalizeRole(params.get("reset_role")) === "tutor" ? "teacher" : "student";
   });
   const [registeredStudent, setRegisteredStudent] = useState<any | null>(null);
   const [studentSession, setStudentSession] = useState<any | null>(null);
@@ -599,31 +602,33 @@ export default function App() {
         const res = await fetch("/api/me", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
-        if (data.role === "student") {
+        // The API may answer with either the canonical or the legacy spelling.
+        const role = normalizeRole(data.role);
+        if (role === "student") {
           setStudentSession({
             fullName: data.full_name,
             email: data.email,
-            role: data.role,
+            role,
             studentIdCode: data.student_id_code,
             phoneNumber: data.phone_number || "",
             courseLevel: data.course_level || "A1",
             classGroup: data.class_group || "Morning Group",
             learningMode: data.learning_mode || "Online"
           });
-        } else if (data.role === "teacher") {
+        } else if (role === "tutor") {
           setTeacherSession({
             fullName: data.full_name,
             displayName: data.display_name || data.full_name,
             email: data.email,
-            role: data.role,
+            role,
             teacherId: data.teacher_id_code,
             assignedLevels: data.assigned_levels || ["A1"]
           });
-        } else if (data.role === "admin") {
+        } else if (role === "developer") {
           setAdminSession({
             fullName: data.full_name,
             email: data.email,
-            role: data.role
+            role
           });
         }
       } catch (err) {

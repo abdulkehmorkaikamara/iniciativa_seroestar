@@ -17,6 +17,7 @@ import {
 import { motion } from "motion/react";
 
 import { TRANSLATIONS } from "../../translations";
+import { normalizeRole, portalRoleToCanonical, roleMatchesPortal } from "../../roles";
 
 interface PortalGateProps {
   role: "student" | "teacher" | "admin";
@@ -29,9 +30,11 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
   const canResetPassword = role === "student" || role === "teacher";
   const resetParams = new URLSearchParams(window.location.search);
   const requestedResetRole = resetParams.get("reset_role");
-  const resetToken = canResetPassword && (!requestedResetRole || requestedResetRole === role)
-    ? resetParams.get("reset_token") || ""
-    : "";
+  const resetToken =
+    canResetPassword &&
+    (!requestedResetRole || normalizeRole(requestedResetRole) === portalRoleToCanonical(role))
+      ? resetParams.get("reset_token") || ""
+      : "";
   const [authMode, setAuthMode] = useState<"login" | "forgot" | "reset">(resetToken ? "reset" : "login");
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
@@ -221,10 +224,14 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
             }
 
             const userInfo = await loginResponse.json();
+            if (!roleMatchesPortal(userInfo.role, "student")) {
+              setError(t.gateStudentInvalid);
+              return;
+            }
             onSuccess({
               fullName: userInfo.full_name,
               email: userInfo.email,
-              role: userInfo.role,
+              role: normalizeRole(userInfo.role),
               studentIdCode: userInfo.student_id_code,
               phoneNumber: userInfo.phone_number || "",
               courseLevel: userInfo.course_level || "A1",
@@ -246,7 +253,7 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
 
           if (loginResponse.ok) {
             const userInfo = await loginResponse.json();
-            if (userInfo.role !== "teacher") {
+            if (!roleMatchesPortal(userInfo.role, "teacher")) {
               setError(t.gateTeacherInvalid);
               return;
             }
@@ -274,7 +281,7 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
             body: JSON.stringify({ username: email, password })
           });
           const userInfo = await loginResponse.json().catch(() => ({}));
-          if (!loginResponse.ok || userInfo.role !== "admin") {
+          if (!loginResponse.ok || !roleMatchesPortal(userInfo.role, "admin")) {
             setError(userInfo.detail || t.gateAdminInvalid);
             return;
           }
@@ -517,7 +524,7 @@ May 2026`,
               <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 type="email"
-                placeholder={role === "student" ? t.gateEmailPlaceholder : role === "teacher" ? "tutor@seroestar.com" : "admin@seroestar.com"}
+                placeholder={role === "student" ? t.gateEmailPlaceholder : role === "teacher" ? "tutor@seroestar.com" : "developer@seroestar.com"}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"

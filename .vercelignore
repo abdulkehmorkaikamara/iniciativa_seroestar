@@ -3,6 +3,7 @@
 node_modules
 dist
 backend/uploads
+backend/data
 backend/**/__pycache__
 database/portal-people.json
 *.log
