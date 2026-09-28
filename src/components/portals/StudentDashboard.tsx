@@ -166,10 +166,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [announcements, setAnnouncements] = useState<Array<{ id: string; courseLevel: string; title: string; text: string; date: string; type: string; instructor: string }>>(() => {
     const saved = localStorage.getItem("course_announcements");
     const baseline = [
-      { id: "ann-init-1", courseLevel: "A1", title: "Visual Metaphor Slide Pack Uploaded!", text: "Please review the new Ser vs Estar cognitive metaphor map in your Materials Locker before Wednesday's live oral drills class.", date: "2026-06-21", type: "important", instructor: TUTOR_PROFILES[0].name },
-      { id: "ann-init-2", courseLevel: "A1", title: "Morning Grammar Drills Schedule change", text: "Wednesday session will begin exactly 15 minutes earlier due to mock certification tests with UNIMAK.", date: "2026-06-22", type: "info", instructor: TUTOR_PROFILES[1].name },
-      { id: "ann-init-3", courseLevel: "A2", title: "Quiz 3 Deadline Rescheduled", text: "The Elementary past tenses homework has been shifted to Friday night. Practice the difference between indefinido and imperfecto.", date: "2026-06-21", type: "info", instructor: TUTOR_PROFILES[2].name },
-      { id: "ann-init-4", courseLevel: "B1", title: "Subjunctive Essay Prompt released", text: "Submit your final essays in the assignments tab directly. 500 words on Spain's local cultural metaphors.", date: "2026-06-22", type: "success", instructor: TUTOR_PROFILES[3].name }
+      { id: "ann-init-1", courseLevel: "A1", title: "Visual Metaphor Slide Pack Uploaded!", text: "Please review the new Ser vs Estar cognitive metaphor map in your Materials Locker before Wednesday's live oral drills class.", date: "2026-06-21", type: "important", instructor: TUTOR_PROFILES[0 % TUTOR_PROFILES.length].name },
+      { id: "ann-init-2", courseLevel: "A1", title: "Morning Grammar Drills Schedule change", text: "Wednesday session will begin exactly 15 minutes earlier due to mock certification tests with UNIMAK.", date: "2026-06-22", type: "info", instructor: TUTOR_PROFILES[1 % TUTOR_PROFILES.length].name },
+      { id: "ann-init-3", courseLevel: "A2", title: "Quiz 3 Deadline Rescheduled", text: "The Elementary past tenses homework has been shifted to Friday night. Practice the difference between indefinido and imperfecto.", date: "2026-06-21", type: "info", instructor: TUTOR_PROFILES[2 % TUTOR_PROFILES.length].name },
+      { id: "ann-init-4", courseLevel: "B1", title: "Subjunctive Essay Prompt released", text: "Submit your final essays in the assignments tab directly. 500 words on Spain's local cultural metaphors.", date: "2026-06-22", type: "success", instructor: TUTOR_PROFILES[3 % TUTOR_PROFILES.length].name }
     ];
     if (saved) {
       try {
@@ -996,7 +996,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                             "Join now to participate in oral drill patterns. Joining automatically registers your present status metrics.",
                             "Únete ahora para participar en los patrones de práctica oral. Unirse registra automáticamente tu estado de asistencia como presente."
                           )
-                        : d(`Scheduled for ${activeSession.startTime}. The join button becomes available up to 15 minutes before class.`, `Programada para ${activeSession.startTime}. Puedes entrar hasta 15 minutos antes de la clase.`)}
+                        : d(`Scheduled for ${activeSession.startTime} (Sierra Leone Time). The join button becomes available up to 15 minutes before class.`, `Programada para ${activeSession.startTime} (hora de Sierra Leona). Puedes entrar hasta 15 minutos antes de la clase.`)}
                     </p>
                   </div>
                 </div>

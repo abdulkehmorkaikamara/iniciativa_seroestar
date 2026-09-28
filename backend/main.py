@@ -315,14 +315,21 @@ def _provision_live_room(session: models.LiveClassSession) -> dict:
     if not api_key:
         return room_details
 
+    properties = {
+        "enable_chat": True,
+        "start_video_off": False,
+    }
+    # Cloud recording requires a paid Daily plan; only request it when the
+    # deployment has explicitly opted in, so room creation still succeeds on
+    # a free-tier account instead of failing with "cannot be set to that
+    # value with your current plan".
+    if os.getenv("DAILY_ENABLE_CLOUD_RECORDING", "false").strip().lower() == "true":
+        properties["enable_recording"] = "cloud"
+
     payload = {
         "name": room_details["room_name"],
         "privacy": "private",
-        "properties": {
-            "enable_chat": True,
-            "enable_recording": "cloud",
-            "start_video_off": False,
-        },
+        "properties": properties,
     }
     try:
         request = urllib.request.Request(
@@ -355,6 +362,8 @@ def _provision_live_room(session: models.LiveClassSession) -> dict:
             token_data = json.loads(token_response.read().decode("utf-8"))
         room_details["join_token"] = token_data.get("token") or room_details["join_token"]
     except Exception as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
+        print(f"[live-room] Daily provisioning failed, falling back to a local room: {detail}")
         if ENVIRONMENT == "production":
             raise HTTPException(status_code=502, detail="The live classroom provider could not create the room.") from exc
         return room_details
@@ -385,6 +394,8 @@ def _create_daily_token(room_name: str, is_owner: bool = False, user_name: str |
         with urllib.request.urlopen(request, timeout=10) as token_response:
             token_data = json.loads(token_response.read().decode("utf-8"))
     except Exception as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
+        print(f"[live-room] Daily token creation failed, falling back to demo-token: {detail}")
         if ENVIRONMENT == "production":
             raise HTTPException(status_code=502, detail="The live classroom access token could not be created.") from exc
         return "demo-token"

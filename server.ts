@@ -726,7 +726,11 @@ May 2026
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running at http://0.0.0.0:${PORT}`);
+    // Bind on every interface so phones on the LAN can reach the dev server,
+    // but advertise localhost: Chrome only treats localhost/127.0.0.1 as a
+    // secure context, and without one navigator.mediaDevices is undefined, so
+    // Daily refuses to start the call with "WebRTC not supported or suppressed".
+    console.log(`Server running at http://localhost:${PORT}`);
   });
 }
 
