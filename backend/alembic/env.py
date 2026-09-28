@@ -24,14 +24,14 @@ if config.config_file_name is not None:
 
 # import your models here so target_metadata can be populated
 import backend.models  # noqa: F401
-from backend.database import Base
+from backend.database import Base, resolve_database_url
 
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with DATABASE_URL from .env if available
-database_url = os.getenv("DATABASE_URL")
-if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+# Resolve the URL exactly the way the application does, so migrations always
+# run against the same persistent database the API will connect to. The literal
+# value in alembic.ini is only a placeholder.
+config.set_main_option("sqlalchemy.url", resolve_database_url().replace("%", "%%"))
 
 
 def run_migrations_offline() -> None:
@@ -73,7 +73,11 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            # SQLite cannot ALTER most things in place; batch mode rewrites the
+            # table instead. No-op on PostgreSQL.
+            render_as_batch=connection.dialect.name == "sqlite",
         )
 
         with context.begin_transaction():

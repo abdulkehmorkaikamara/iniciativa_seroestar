@@ -20,13 +20,6 @@ TUTOR_PROFILES = [
         "email": "guerly@seroestar.com",
         "assigned_levels": ["A1", "A2"],
     },
-    {
-        "id": "lashika",
-        "name": "Lashika",
-        "display_name": "Tutora Lashika",
-        "email": "lashika@seroestar.com",
-        "assigned_levels": ["A1", "A2"],
-    },
 ]
 
 

@@ -48,6 +48,8 @@ const TeacherDashboard = React.lazy(() => import("./components/portals/TeacherDa
 const AdminDashboard = React.lazy(() => import("./components/portals/AdminDashboard"));
 const PortalGate = React.lazy(() => import("./components/portals/PortalGate"));
 
+import { normalizeRole } from "./roles";
+
 const HERO_SLIDES_EN = [
   {
     image: "/src/assets/images/spanish_classroom_hero_1782078041463.jpg",
@@ -368,7 +370,12 @@ Las personas bilingües pueden mostrar síntomas de deterioro cognitivo entre **
 
 export default function App() {
   // Portals & Role-Based Core State
-  const [currentPortal, setCurrentPortal] = useState<"student" | "teacher" | "admin" | null>(null);
+  const [currentPortal, setCurrentPortal] = useState<"student" | "teacher" | "admin" | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("reset_token")) return null;
+    // reset_role may arrive as "teacher" (older links) or "tutor" (current).
+    return normalizeRole(params.get("reset_role")) === "tutor" ? "teacher" : "student";
+  });
   const [registeredStudent, setRegisteredStudent] = useState<any | null>(null);
   const [studentSession, setStudentSession] = useState<any | null>(null);
   const [teacherSession, setTeacherSession] = useState<any | null>(null);
@@ -595,31 +602,33 @@ export default function App() {
         const res = await fetch("/api/me", { credentials: "include" });
         if (!res.ok) return;
         const data = await res.json();
-        if (data.role === "student") {
+        // The API may answer with either the canonical or the legacy spelling.
+        const role = normalizeRole(data.role);
+        if (role === "student") {
           setStudentSession({
             fullName: data.full_name,
             email: data.email,
-            role: data.role,
+            role,
             studentIdCode: data.student_id_code,
             phoneNumber: data.phone_number || "",
             courseLevel: data.course_level || "A1",
             classGroup: data.class_group || "Morning Group",
             learningMode: data.learning_mode || "Online"
           });
-        } else if (data.role === "teacher") {
+        } else if (role === "tutor") {
           setTeacherSession({
             fullName: data.full_name,
             displayName: data.display_name || data.full_name,
             email: data.email,
-            role: data.role,
+            role,
             teacherId: data.teacher_id_code,
             assignedLevels: data.assigned_levels || ["A1"]
           });
-        } else if (data.role === "admin") {
+        } else if (role === "developer") {
           setAdminSession({
             fullName: data.full_name,
             email: data.email,
-            role: data.role
+            role
           });
         }
       } catch (err) {
@@ -1425,6 +1434,15 @@ Spanish:
                     ? "bg-slate-900"
                     : "bg-indigo-950";
 
+                const courseSubtitle =
+                  courseLang === "EN"
+                    ? "Designed for Beginners"
+                    : course.id === "a1"
+                    ? "Da tus primeros pasos."
+                    : course.id === "a2"
+                    ? "Fortalece tu comunicación diaria"
+                    : "Exprésate con fluidez";
+
                 return (
                   <motion.div
                     key={course.id}
@@ -1442,14 +1460,14 @@ Spanish:
                         {course.title}
                       </h3>
                       <p className="text-[11px] text-slate-400 mt-1 uppercase tracking-wide">
-                        {courseLang === "EN" ? "Designed for Beginners" : "Diseñado para Principiantes"}
+                        {courseSubtitle}
                       </p>
                     </div>
 
                     {/* Course Outline Dynamic Tabs Navigation */}
                     <div className="px-6 pt-6 shrink-0">
                       {/* Desktop View Tabs (lg and above) */}
-                      <div className="hidden lg:grid grid-cols-4 gap-1 p-1 bg-slate-100 rounded-2xl border border-slate-200/60">
+                      <div className="hidden lg:grid grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-2xl border border-slate-200/60">
                         {(["objectives", "vocabulary", "grammar", "speaking"] as const).map((tab) => {
                           const tabLabels = {
                             objectives: courseLang === "EN" ? "Objectives" : "Objetivos",
@@ -1462,7 +1480,7 @@ Spanish:
                             <button
                               key={tab}
                               onClick={() => setCourseActiveTab(prev => ({ ...prev, [course.id]: tab }))}
-                              className={`py-2 px-0.5 text-[9.5px] font-sans font-black uppercase tracking-wider rounded-xl transition-all duration-200 cursor-pointer text-center ${
+                              className={`min-w-0 whitespace-nowrap py-2 px-1 text-[8.5px] xl:text-[9px] font-sans font-black uppercase tracking-normal rounded-xl transition-all duration-200 cursor-pointer text-center ${
                                 active
                                   ? "bg-white text-orange-600 shadow-xs"
                                   : "text-slate-500 hover:text-slate-850"
@@ -1862,9 +1880,43 @@ Spanish:
               <div className="h-1.5 w-16 bg-teal-500 mx-auto rounded-full" />
             </div>
 
-            {/* Custom Brand Presentation Card */}
-            <div className="flex justify-center pb-4">
-              <motion.div 
+            {/* Founder & Brand Presentation Cards */}
+            <div className="flex flex-col md:flex-row justify-center items-stretch gap-6 pb-4">
+              <motion.div
+                initial={{ opacity: 0, y: 15 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true }}
+                transition={{ duration: 0.6 }}
+                className="bg-[#F6F1E8] rounded-[32px] p-10 max-w-sm w-full text-center border border-[#EBE3D5] shadow-xl flex flex-col items-center justify-center space-y-3 relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-radial-gradient from-transparent to-[#efe7da]/30 pointer-events-none" />
+                <img
+                  src="/src/assets/images/founder_viviana.jpeg"
+                  alt="Viviana"
+                  className="w-28 h-28 rounded-full object-cover shadow-md shrink-0"
+                />
+                <h4 className="font-sans font-black text-slate-900 text-lg leading-tight">
+                  Viviana
+                </h4>
+                <p className="text-xs text-teal-700 font-semibold uppercase tracking-wide">
+                  {courseLang === "EN" ? "Founder" : "Fundadora"}
+                </p>
+                <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                  {courseLang === "EN"
+                    ? "30 years of diverse professional experience, including 14 years in Sierra Leone's NGO sector, spanning executive leadership, financial controllership, grant management, and grassroots operations."
+                    : "30 años de experiencia profesional diversa, incluyendo 14 años en el sector de ONG de Sierra Leona, abarcando liderazgo ejecutivo, control financiero, gestión de subvenciones y operaciones comunitarias."}
+                </p>
+                <a
+                  href="https://www.vivianagranobles.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-bold text-teal-700 underline underline-offset-2 hover:text-teal-800"
+                >
+                  {courseLang === "EN" ? "View portfolio" : "Ver portafolio"}
+                </a>
+              </motion.div>
+
+              <motion.div
                 initial={{ opacity: 0, y: 15 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
@@ -1898,9 +1950,15 @@ Spanish:
                 </p>
                 <div className="flex items-center space-x-6 pt-2">
                   <div>
+                    <h4 className="font-sans font-extrabold text-2xl text-teal-600">4 Max</h4>
+                    <span className="text-xs text-slate-400">
+                      {courseLang === "EN" ? "One-on-One Support" : "Apoyo Uno a Uno"}
+                    </span>
+                  </div>
+                  <div>
                     <h4 className="font-sans font-extrabold text-2xl text-teal-600">16 Max</h4>
                     <span className="text-xs text-slate-400">
-                      {courseLang === "EN" ? "Students Per Group" : "Estudiantes por Grupo"}
+                      {courseLang === "EN" ? "Master Class" : "Clase Magistral"}
                     </span>
                   </div>
                   <div>
@@ -1941,7 +1999,7 @@ Spanish:
                       </h5>
                       <p className="text-xs text-slate-500">
                         {courseLang === "EN"
-                          ? "No lecturing to masses of silent boxes. If you pay for conversation classes, you have a physical slot to speak during every single minute of interaction."
+                          ? "No lecturing to masses of silent boxes. If you pay for conversation classes, you have a physical slot to speak during the interaction."
                           : "Nada de dar conferencias a masas de recuadros silenciosos. Si pagas por clases de conversación, tienes un espacio real para hablar durante cada minuto de interacción."}
                       </p>
                     </div>
@@ -1993,12 +2051,14 @@ Spanish:
                   <div className="space-y-4">
                     {/* Stylized Avatar header with lettermark */}
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        XV
-                      </div>
+                      <img
+                        src="/src/assets/images/team_xiomara.jpg"
+                        alt="Xiomara"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
-                          Xiomara Villamizar
+                          Xiomara
                         </h4>
                         <p className="text-xs text-orange-600 font-semibold text-left">
                           {courseLang === "EN" ? "Director of Cognitive Pedagogy" : "Director de Pedagogía Cognitiva"}
@@ -2008,8 +2068,8 @@ Spanish:
                     <div className="h-0.5 bg-slate-50 w-full" />
                     <p className="text-xs sm:text-sm text-slate-600 leading-relaxed text-left">
                       {courseLang === "EN"
-                        ? "Xiomara supports A1 and A2 learners with structured grammar guidance, pronunciation correction, and practical classroom routines drawn from the tutor template schedule."
-                        : "Xiomara acompaña a estudiantes A1 y A2 con guía gramatical estructurada, corrección de pronunciación y rutinas prácticas tomadas del horario de la plantilla de tutores."}
+                        ? "Lead Pedagogical Designer, responsible for creating content strictly aligned with DELE proficiency levels and the Instituto Cervantes framework. Xiomara guides A1 and A2 students through structured grammatical frameworks, pronunciation correction, and practical routines taken from the tutor.template schedule."
+                        : "Diseñadora Pedagógica Principal, responsable de crear contenido estrictamente alineado con los niveles de competencia DELE y el marco del Instituto Cervantes. Xiomara guía a los estudiantes de A1 y A2 a través de marcos gramaticales estructurados, corrección de pronunciación y rutinas prácticas tomadas del horario de la plantilla de tutores."}
                     </p>
                   </div>
                   <div className="pt-3 border-t border-slate-50/80 mt-auto flex flex-col space-y-1.5 text-left">
@@ -2017,7 +2077,7 @@ Spanish:
                       {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
                     </span>
                     <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "MA in Cognitive Linguistics (Madrid), DELE Examiner." : "Máster en Lingüística Cognitiva (Madrid), Examinador DELE."}
+                      {courseLang === "EN" ? "MA in Cognitive Linguistics, UNEATLANTICO (Santander)." : "Máster en Lingüística Cognitiva, UNEATLANTICO (Santander)."}
                     </span>
                   </div>
                 </motion.div>
@@ -2030,12 +2090,14 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-teal-500 to-emerald-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        IF
-                      </div>
+                      <img
+                        src="/src/assets/images/team_ivoneth.jpg"
+                        alt="Ivoneth"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
-                          Ivoneth Frias
+                          Ivoneth
                         </h4>
                         <p className="text-xs text-teal-600 font-semibold text-left">
                           {courseLang === "EN" ? "Lead Conversational Mentor" : "Mentora Principal de Conversación"}
@@ -2054,7 +2116,7 @@ Spanish:
                       {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
                     </span>
                     <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "Bilingual Acquisition Coach, Instituto Cervantes Associate." : "Entrenadora de Adquisición Bilingüe, Asociada del Instituto Cervantes."}
+                      {courseLang === "EN" ? "Bilingual Acquisition Coach." : "Entrenadora de Adquisición Bilingüe."}
                     </span>
                   </div>
                 </motion.div>
@@ -2067,9 +2129,11 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        GU
-                      </div>
+                      <img
+                        src="/src/assets/images/team_guerly.jpg"
+                        alt="Guerly"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight text-left">
                           Guerly
@@ -2091,12 +2155,12 @@ Spanish:
                       {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
                     </span>
                     <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "MA in Romance Philology from UNIMAK, Local Coordinator." : "Máster en Filología Románica por UNIMAK, Coordinador Local."}
+                      {courseLang === "EN" ? "Bachelor of Education in Foreign Languages from UNIMAK, Local Coordinator." : "Licenciatura en Educación en Lenguas Extranjeras por UNIMAK, Coordinador Local."}
                     </span>
                   </div>
                 </motion.div>
 
-                {/* Instructor 4 */}
+                {/* Instructor 4 (Abdul) */}
                 <motion.div
                   whileHover={{ scale: 1.025, y: -4 }}
                   transition={{ type: "spring", stiffness: 350, damping: 22 }}
@@ -2104,23 +2168,25 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        LA
-                      </div>
+                      <img
+                        src="/src/assets/images/team_abdul.jpg"
+                        alt="Abdul"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight text-left">
-                          Lashika
+                          Abdul
                         </h4>
-                        <p className="text-xs text-cyan-700 font-semibold text-left">
-                          {courseLang === "EN" ? "Live Practice Facilitator" : "Facilitadora de Práctica en Vivo"}
+                        <p className="text-xs text-slate-600 font-semibold text-left">
+                          {courseLang === "EN" ? "Technical Systems Lead" : "Líder de Sistemas Técnicos"}
                         </p>
                       </div>
                     </div>
                     <div className="h-0.5 bg-slate-50 w-full" />
                     <p className="text-xs sm:text-sm text-slate-600 leading-relaxed text-left">
                       {courseLang === "EN"
-                        ? "Lashika supports oral practice, revision classes, and extra sessions so learners can recover missed concepts and build speaking confidence."
-                        : "Lashika apoya la práctica oral, las clases de repaso y las sesiones extra para que los estudiantes recuperen conceptos y ganen confianza al hablar."}
+                        ? "Computer Engineer responsible for the platform's technical infrastructure and student support systems, keeping the learning tools reliable and accessible."
+                        : "Ingeniero en Computación responsable de la infraestructura técnica de la plataforma y de los sistemas de soporte a estudiantes, manteniendo las herramientas de aprendizaje confiables y accesibles."}
                     </p>
                   </div>
                   <div className="pt-3 border-t border-slate-50/80 mt-auto flex flex-col space-y-1.5 text-left">
@@ -2128,8 +2194,16 @@ Spanish:
                       {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
                     </span>
                     <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "Conversation drills, recovery sessions, and student support." : "Práctica conversacional, sesiones de recuperación y apoyo estudiantil."}
+                      {courseLang === "EN" ? "Computer Engineer, Software & Data Systems." : "Ingeniero en Computación, Software y Sistemas de Datos."}
                     </span>
+                    <a
+                      href="https://www.abdulsprofile.bizkepsl.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs font-bold text-orange-600 underline underline-offset-2 hover:text-orange-700"
+                    >
+                      {courseLang === "EN" ? "View portfolio" : "Ver portafolio"}
+                    </a>
                   </div>
                 </motion.div>
               </div>
@@ -2212,9 +2286,8 @@ Spanish:
                     </div>
                     <div>
                       <h4 className="font-sans font-black text-slate-900 text-sm tracking-tight leading-none">
-                        UNIMAK
+                        Education
                       </h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{courseLang === "EN" ? "University of Makeni Alliance" : "Alianza con la Universidad de Makeni"}</p>
                     </div>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed text-left">
@@ -2271,7 +2344,7 @@ Spanish:
                 </div>
                 <div className="text-left space-y-1">
                   <span className="font-bold text-slate-800">{courseLang === "EN" ? "Support Hours:" : "Horario de atención:"}</span>
-                  <p>{courseLang === "EN" ? "Mon - Fri" : "Lun - Vie"}: 8:00 - 20:00 UTC<br />{courseLang === "EN" ? "Sat" : "Sáb"}: 9:00 - 15:00 UTC</p>
+                  <p>{courseLang === "EN" ? "Mon - Fri" : "Lun - Vie"}: 8:00 - 20:00 GMT<br />{courseLang === "EN" ? "Sat" : "Sáb"}: 9:00 - 15:00 GMT</p>
                 </div>
               </div>
             </div>

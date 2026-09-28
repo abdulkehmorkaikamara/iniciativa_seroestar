@@ -615,6 +615,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
             <div className="space-y-4">
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Scheduled Live Sessions", "Sesiones en Vivo Programadas")}</h3>
+                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{d("Sierra Leone Time (GMT)", "Hora de Sierra Leona (GMT)")}</span>
               </div>
 
               {/* Scheduled class lists */}
@@ -626,7 +627,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                         <span className="text-[9px] font-bold bg-orange-100 text-orange-700 px-2.5 py-0.2 rounded-full font-mono">
                           {cls.level}
                         </span>
-                        <span className="text-[10px] font-mono text-slate-400">{cls.date} • {cls.time}</span>
+                        <span className="text-[10px] font-mono text-slate-400">{cls.date} GMT</span>
                       </div>
                       <h4 className="font-bold text-xs text-slate-800">{cls.title}</h4>
                     </div>
@@ -690,6 +691,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                 <input
                   type="time"
                   required
+                  title={d("Enter the time in Sierra Leone Time (GMT).", "Introduce la hora en horario de Sierra Leona (GMT).")}
                   value={newTime}
                   onChange={(e) => setNewTime(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.8 text-xs text-slate-500 focus:outline-hidden"
@@ -704,6 +706,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                   <span>{d("Schedule", "Programar")}</span>
                 </button>
               </div>
+              <span className="sm:col-span-6 text-[9px] text-slate-400 font-semibold -mt-1">
+                {d("Times are in Sierra Leone Time (GMT).", "Los horarios están en horario de Sierra Leona (GMT).")}
+              </span>
               {scheduleStatus && (
                 <div
                   role="status"

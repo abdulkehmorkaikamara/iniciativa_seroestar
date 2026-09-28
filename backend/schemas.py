@@ -21,6 +21,13 @@ class LoginRequest(BaseModel):
     username: EmailStr
     password: str = Field(min_length=8, max_length=72)
 
+class PasswordForgotRequest(BaseModel):
+    email: EmailStr
+
+class PasswordResetRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=2048)
+    new_password: str = Field(min_length=12, max_length=72)
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str

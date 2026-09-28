@@ -2,16 +2,24 @@ from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Foreign
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
+from .roles import STUDENT
 
 class User(Base):
+    """A persisted account. This table is the only source of truth for logins."""
+
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=False)  # bcrypt digest, never plaintext
     full_name = Column(String(255), nullable=False)
-    role = Column(String(50), default="student") # admin, teacher, student
+    role = Column(String(50), nullable=False, default=STUDENT, index=True) # developer, tutor, student
+    is_active = Column(Boolean, nullable=False, default=True, server_default="1")
+    is_seeded = Column(Boolean, nullable=False, default=False, server_default="0")
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    password_changed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     student_profile = relationship("StudentProfile", back_populates="user", uselist=False)
     teacher_profile = relationship("TeacherProfile", back_populates="user", uselist=False)

@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
@@ -20,159 +19,19 @@ Answer the user's questions about Spanish learning, Ser vs Estar grammar, our le
 
 let ai: any = null;
 
-type PortalStudentRecord = {
-  id: number;
-  user_id: number;
-  full_name: string;
-  email: string;
-  password_hash: string;
-  student_id_code: string;
-  phone_number: string;
-  course_level: string;
-  class_group: string;
-  learning_mode: string;
-  status: string;
-  registration_date: string;
-  created_at: string;
-};
-
-type PortalTeacherRecord = {
-  id: number;
-  user_id: number;
-  full_name: string;
-  email: string;
-  password_hash: string;
-  teacher_id_code: string;
-  assigned_levels: string[];
-  created_at: string;
-};
-
-type PortalPeopleStore = {
-  students: PortalStudentRecord[];
-  teachers: PortalTeacherRecord[];
-  updated_at?: string;
-};
-
-const portalPeoplePath = path.join(process.cwd(), "database", "portal-people.json");
-const adminPortalKey = process.env.ADMIN_PORTAL_KEY;
-const allowDemoAuth = process.env.ALLOW_DEMO_AUTH === "true" && process.env.NODE_ENV !== "production";
-
-function hashPassword(password: string) {
-  return createHash("sha256").update(`ser-o-estar:${password}`).digest("hex");
-}
-
-async function readPortalPeople(): Promise<PortalPeopleStore> {
-  try {
-    const raw = await fs.readFile(portalPeoplePath, "utf8");
-    const parsed = JSON.parse(raw);
-    return {
-      students: Array.isArray(parsed.students) ? parsed.students : [],
-      teachers: Array.isArray(parsed.teachers) ? parsed.teachers : [],
-      updated_at: parsed.updated_at,
-    };
-  } catch (error: any) {
-    if (error?.code !== "ENOENT") {
-      console.warn("Unable to read portal people fallback store:", error);
-    }
-    return { students: [], teachers: [] };
-  }
-}
-
-async function writePortalPeople(store: PortalPeopleStore) {
-  await fs.mkdir(path.dirname(portalPeoplePath), { recursive: true });
-  await fs.writeFile(
-    portalPeoplePath,
-    JSON.stringify({ ...store, updated_at: new Date().toISOString() }, null, 2),
-    "utf8",
-  );
-}
-
-function nextNumericId(records: Array<{ id: number }>, fallback: number) {
-  return Math.max(fallback - 1, ...records.map((record) => Number(record.id) || 0)) + 1;
-}
-
-function generatePortalCode(prefix: string, existingCodes: string[]) {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const candidate = `${prefix}-${Math.floor(Math.random() * 900) + 100}`;
-    if (!existingCodes.includes(candidate)) return candidate;
-  }
-  return `${prefix}-${Date.now().toString().slice(-5)}`;
-}
-
-function storedStudentToResponse(student: PortalStudentRecord) {
-  return {
-    id: student.id,
-    student_id_code: student.student_id_code,
-    phone_number: student.phone_number,
-    course_level: student.course_level,
-    class_group: student.class_group,
-    learning_mode: student.learning_mode,
-    status: student.status,
-    registration_date: student.registration_date,
-    user: {
-      id: student.user_id,
-      email: student.email,
-      full_name: student.full_name,
-      role: "student",
-      created_at: student.created_at,
-    },
-  };
-}
-
-function storedStudentToAdminList(student: PortalStudentRecord) {
-  return {
-    id: student.id,
-    student_id_code: student.student_id_code,
-    full_name: student.full_name,
-    email: student.email,
-    phone_number: student.phone_number,
-    course_level: student.course_level,
-    class_group: student.class_group,
-    learning_mode: student.learning_mode,
-    status: student.status,
-    registration_date: student.registration_date,
-  };
-}
-
-function storedStudentToLogin(student: PortalStudentRecord) {
-  return {
-    access_token: "portal-local-token",
-    token_type: "bearer",
-    role: "student",
-    full_name: student.full_name,
-    email: student.email,
-    student_id_code: student.student_id_code,
-    phone_number: student.phone_number,
-    course_level: student.course_level,
-    class_group: student.class_group,
-    learning_mode: student.learning_mode,
-  };
-}
-
-function storedTeacherToAdminList(teacher: PortalTeacherRecord) {
-  return {
-    id: teacher.id,
-    teacher_id_code: teacher.teacher_id_code,
-    name: teacher.full_name,
-    display_name: teacher.full_name,
-    email: teacher.email,
-    assigned_levels: teacher.assigned_levels,
-    source: "database",
-  };
-}
-
-function storedTeacherToLogin(teacher: PortalTeacherRecord) {
-  return {
-    access_token: "portal-local-token",
-    token_type: "bearer",
-    role: "teacher",
-    full_name: teacher.full_name,
-    display_name: teacher.full_name,
-    email: teacher.email,
-    teacher_id_code: teacher.teacher_id_code,
-    assigned_levels: teacher.assigned_levels,
-  };
-}
+/**
+ * Account credentials live in one place only: the FastAPI backend's persistent
+ * database. This server used to keep a parallel `database/portal-people.json`
+ * store with SHA-256 password hashes and answer logins from it whenever the
+ * backend was unreachable. That store was the reason credentials created during
+ * a dev session stopped working later: the account never reached the database,
+ * and the fallback was only consulted when ALLOW_DEMO_AUTH was set.
+ *
+ * Every auth and account route below now proxies straight through and surfaces
+ * a clear error when the backend is down. Authorization for the developer-shell
+ * routes is the backend's job: it checks the caller's JWT role, so this server
+ * no longer needs an ADMIN_PORTAL_KEY of its own.
+ */
 
 function templateTeacherToAdminList(tutor: (typeof TUTOR_PROFILES)[number]) {
   return {
@@ -184,16 +43,6 @@ function templateTeacherToAdminList(tutor: (typeof TUTOR_PROFILES)[number]) {
     assigned_levels: tutor.assignedLevels,
     source: "template",
   };
-}
-
-function hasAdminKey(req: express.Request, res: express.Response) {
-  if (!adminPortalKey) {
-    res.status(503).json({ detail: "Administrator access is not configured." });
-    return false;
-  }
-  if (req.header("X-Admin-Key") === adminPortalKey) return true;
-  res.status(401).json({ detail: "Invalid or missing admin key." });
-  return false;
 }
 
 async function getGeminiClient() {
@@ -214,7 +63,7 @@ async function getGeminiClient() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const BACKEND_API_URL = process.env.BACKEND_API_URL || "http://localhost:8000";
 
   // Keep multipart uploads intact so they can be forwarded to FastAPI with the
@@ -297,6 +146,14 @@ async function startServer() {
     const contentType = backendResult.response.headers.get("content-type");
     if (contentType) {
       res.setHeader("content-type", contentType);
+    }
+    const responseHeaders = backendResult.response.headers as Headers & { getSetCookie?: () => string[] };
+    const setCookies = responseHeaders.getSetCookie?.() || [];
+    if (setCookies.length > 0) {
+      res.setHeader("set-cookie", setCookies);
+    } else {
+      const setCookie = backendResult.response.headers.get("set-cookie");
+      if (setCookie) res.setHeader("set-cookie", setCookie);
     }
     res.status(backendResult.response.status).send(backendResult.bodyText);
   };
@@ -741,151 +598,21 @@ May 2026
     });
   });
 
-  app.post("/api/login", async (req, res) => {
-    let backendResult: { response: Response; bodyText: string } | null = null;
-
-    try {
-      backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
-        sendBackendResult(res, backendResult);
-        return;
-      }
-    } catch (error) {
-      console.warn("Backend login unavailable, trying portal fallback store:", error);
-    }
-
-    if (!allowDemoAuth) {
-      if (backendResult) {
-        sendBackendResult(res, backendResult);
-      } else {
-        res.status(502).json({ detail: "Authentication service is temporarily unavailable." });
-      }
-      return;
-    }
-
-    const username = String(req.body?.username || req.body?.email || "").trim().toLowerCase();
-    const password = String(req.body?.password || "");
-    const passwordHash = hashPassword(password);
-    const store = await readPortalPeople();
-
-    const localStudent = store.students.find(
-      (student) => student.email.toLowerCase() === username && student.password_hash === passwordHash,
-    );
-    if (localStudent) {
-      res.json(storedStudentToLogin(localStudent));
-      return;
-    }
-
-    const localTeacher = store.teachers.find(
-      (teacher) => teacher.email.toLowerCase() === username && teacher.password_hash === passwordHash,
-    );
-    if (localTeacher) {
-      res.json(storedTeacherToLogin(localTeacher));
-      return;
-    }
-
-    if (backendResult && backendResult.response.status !== 404) {
-      sendBackendResult(res, backendResult);
-      return;
-    }
-
-    res.status(401).json({ detail: "Invalid email or password." });
-  });
+  // Authentication is delegated entirely to the backend, which verifies the
+  // bcrypt hash stored in the database. There is no local credential path.
+  app.post("/api/login", proxyToBackend);
 
   app.get("/api/admin/students", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
-    try {
-      const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
-        sendBackendResult(res, backendResult);
-        return;
-      }
-    } catch (error) {
-      console.warn("Backend student list unavailable, using portal fallback store:", error);
-    }
-
-    const store = await readPortalPeople();
-    res.json(store.students.map(storedStudentToAdminList));
+    await proxyToBackend(req, res);
   });
 
+  // Created accounts must be written to the database or not at all, so that a
+  // credential handed out today still works after a restart or a redeploy.
   app.post("/api/admin/students", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
-    try {
-      const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
-        sendBackendResult(res, backendResult);
-        return;
-      }
-    } catch (error) {
-      console.warn("Backend student creation unavailable, using portal fallback store:", error);
-    }
-
-    const fullName = String(req.body?.full_name || "").trim();
-    const email = String(req.body?.email || "").trim().toLowerCase();
-    const password = String(req.body?.password || "");
-
-    if (!fullName || !email || !password) {
-      res.status(400).json({ detail: "Full name, email, and password are required." });
-      return;
-    }
-
-    const store = await readPortalPeople();
-    const emailExists =
-      store.students.some((student) => student.email.toLowerCase() === email) ||
-      store.teachers.some((teacher) => teacher.email.toLowerCase() === email);
-
-    if (emailExists) {
-      res.status(400).json({ detail: "An account with this email already exists." });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const student: PortalStudentRecord = {
-      id: nextNumericId(store.students, 1),
-      user_id: nextNumericId(store.students.map((record) => ({ id: record.user_id })), 1001),
-      full_name: fullName,
-      email,
-      password_hash: hashPassword(password),
-      student_id_code: generatePortalCode("SER", store.students.map((record) => record.student_id_code)),
-      phone_number: String(req.body?.phone_number || ""),
-      course_level: String(req.body?.course_level || "A1"),
-      class_group: String(req.body?.class_group || "Morning Group"),
-      learning_mode: String(req.body?.learning_mode || "Online"),
-      status: String(req.body?.status || "Active"),
-      registration_date: now,
-      created_at: now,
-    };
-
-    store.students.push(student);
-    await writePortalPeople(store);
-    res.status(201).json(storedStudentToResponse(student));
+    await proxyToBackend(req, res);
   });
 
   app.get("/api/admin/teachers", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
-    try {
-      const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
-        sendBackendResult(res, backendResult);
-        return;
-      }
-    } catch (error) {
-      console.warn("Backend teacher list unavailable, using portal fallback store:", error);
-    }
-
-    const store = await readPortalPeople();
-    res.json([
-      ...store.teachers.map(storedTeacherToAdminList),
-      ...TUTOR_PROFILES.map(templateTeacherToAdminList),
-    ]);
-  });
-
-  app.post("/api/admin/teachers", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
       if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
@@ -893,66 +620,21 @@ May 2026
         return;
       }
     } catch (error) {
-      console.warn("Backend teacher creation unavailable, using portal fallback store:", error);
+      console.warn("Backend tutor list unavailable, showing the static tutor roster:", error);
     }
 
-    const fullName = String(req.body?.full_name || "").trim();
-    const email = String(req.body?.email || "").trim().toLowerCase();
-    const password = String(req.body?.password || "");
-    const assignedLevels = Array.isArray(req.body?.assigned_levels)
-      ? req.body.assigned_levels.map((level: string) => String(level).trim()).filter(Boolean)
-      : ["A1"];
+    // Display-only roster. It carries no credentials and cannot be signed in to.
+    res.json(TUTOR_PROFILES.map(templateTeacherToAdminList));
+  });
 
-    if (!fullName || !email || !password) {
-      res.status(400).json({ detail: "Full name, email, and password are required." });
-      return;
-    }
-
-    const store = await readPortalPeople();
-    const emailExists =
-      store.students.some((student) => student.email.toLowerCase() === email) ||
-      store.teachers.some((teacher) => teacher.email.toLowerCase() === email) ||
-      TUTOR_PROFILES.some((teacher) => teacher.email.toLowerCase() === email);
-
-    if (emailExists) {
-      res.status(400).json({ detail: "An account with this email already exists." });
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const teacher: PortalTeacherRecord = {
-      id: nextNumericId(store.teachers, 1),
-      user_id: nextNumericId(store.teachers.map((record) => ({ id: record.user_id })), 2001),
-      full_name: fullName,
-      email,
-      password_hash: hashPassword(password),
-      teacher_id_code: generatePortalCode("TUT", store.teachers.map((record) => record.teacher_id_code)),
-      assigned_levels: assignedLevels.length ? assignedLevels : ["A1"],
-      created_at: now,
-    };
-
-    store.teachers.push(teacher);
-    await writePortalPeople(store);
-    res.status(201).json({
-      id: teacher.id,
-      teacher_id_code: teacher.teacher_id_code,
-      assigned_levels: teacher.assigned_levels,
-      user: {
-        id: teacher.user_id,
-        email: teacher.email,
-        full_name: teacher.full_name,
-        role: "teacher",
-        created_at: teacher.created_at,
-      },
-    });
+  app.post("/api/admin/teachers", async (req, res) => {
+    await proxyToBackend(req, res);
   });
 
   app.get("/api/admin/teacher-progress", async (req, res) => {
-    if (!hasAdminKey(req, res)) return;
-
     try {
       const backendResult = await fetchBackendForRequest(req);
-      if (backendResult.response.ok) {
+      if (backendResult.response.ok || ![404, 502].includes(backendResult.response.status)) {
         sendBackendResult(res, backendResult);
         return;
       }
@@ -960,11 +642,7 @@ May 2026
       console.warn("Backend teacher progress unavailable, using portal fallback store:", error);
     }
 
-    const store = await readPortalPeople();
-    const teachers = [
-      ...store.teachers.map(storedTeacherToAdminList),
-      ...TUTOR_PROFILES.map(templateTeacherToAdminList),
-    ];
+    const teachers = TUTOR_PROFILES.map(templateTeacherToAdminList);
 
     res.json(teachers.map((teacher) => ({
       teacher_id: teacher.teacher_id_code,
@@ -994,16 +672,21 @@ May 2026
       console.warn("Backend tutor list unavailable, using portal fallback store:", error);
     }
 
-    const store = await readPortalPeople();
-    res.json([
-      ...store.teachers.map(storedTeacherToAdminList),
-      ...TUTOR_PROFILES.map(templateTeacherToAdminList),
-    ]);
+    res.json(TUTOR_PROFILES.map(templateTeacherToAdminList));
   });
 
-  // API Route: Health Check
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok" });
+  // API Route: Health Check. Proxied so it reports the backend's database
+  // state rather than just "this Express process is running".
+  app.get("/api/health", async (req, res) => {
+    try {
+      const backendResult = await fetchBackendForRequest(req);
+      sendBackendResult(res, backendResult);
+    } catch (error) {
+      res.status(503).json({
+        status: "degraded",
+        detail: `Backend API unavailable at ${BACKEND_API_URL}. Start the FastAPI server so logins can reach the database.`,
+      });
+    }
   });
 
   app.get("/uploads/*", async (req, res) => {
@@ -1043,7 +726,11 @@ May 2026
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running at http://0.0.0.0:${PORT}`);
+    // Bind on every interface so phones on the LAN can reach the dev server,
+    // but advertise localhost: Chrome only treats localhost/127.0.0.1 as a
+    // secure context, and without one navigator.mediaDevices is undefined, so
+    // Daily refuses to start the call with "WebRTC not supported or suppressed".
+    console.log(`Server running at http://localhost:${PORT}`);
   });
 }
 

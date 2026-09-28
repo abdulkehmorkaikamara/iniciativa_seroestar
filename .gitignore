@@ -10,3 +10,10 @@ backend/uploads/
 backend/**/__pycache__/
 *.pyc
 .vercel/
+.venv/
+.vscode/
+
+# Local persistent database + cached development JWT key (never commit these)
+backend/data/
+# Removed credential fallback store; ignored so a stale copy is never committed
+database/portal-people.json

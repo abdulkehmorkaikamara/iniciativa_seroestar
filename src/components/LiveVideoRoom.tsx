@@ -17,6 +17,14 @@ export default function LiveVideoRoom({ roomUrl, token, userName, owner = false,
   const onJoinedRef = useRef(onJoined);
   const onLeftRef = useRef(onLeft);
   const onErrorRef = useRef(onError);
+  // Daily allows only one active DailyIframe instance per page, and
+  // frame.destroy() is asynchronous. React's StrictMode intentionally
+  // mounts every effect twice in development (mount -> cleanup -> mount),
+  // so without this guard the second mount would call createFrame() before
+  // the first frame's destroy() finished, and Daily throws "Duplicate
+  // DailyIframe instances are not allowed" — an uncaught error that, with
+  // no error boundary in the app, blanks the whole page for every viewer.
+  const pendingDestroyRef = useRef<Promise<unknown> | null>(null);
   const [status, setStatus] = useState("Connecting to live room...");
 
   useEffect(() => {
@@ -27,65 +35,80 @@ export default function LiveVideoRoom({ roomUrl, token, userName, owner = false,
 
   useEffect(() => {
     if (!containerRef.current || !roomUrl) return;
+    let cancelled = false;
 
-    const callFrame = DailyIframe.createFrame(containerRef.current, {
-      iframeStyle: {
-        width: "100%",
-        height: "100%",
-        minHeight: "320px",
-        border: "0",
-        borderRadius: "16px",
-      },
-      showLeaveButton: true,
-      showFullscreenButton: true,
-    });
-
-    callFrameRef.current = callFrame;
-
-    const handleJoined = async () => {
-      setStatus("Connected");
-      onJoinedRef.current?.();
-      if (owner) {
-        try {
-          await callFrame.startRecording({ layout: { preset: "default" } });
-        } catch (err) {
-          console.warn("Daily cloud recording did not start automatically.", err);
-        }
+    const setup = async () => {
+      if (pendingDestroyRef.current) {
+        await pendingDestroyRef.current;
       }
+      if (cancelled || !containerRef.current) return;
+
+      const callFrame = DailyIframe.createFrame(containerRef.current, {
+        iframeStyle: {
+          width: "100%",
+          height: "100%",
+          minHeight: "320px",
+          border: "0",
+          borderRadius: "16px",
+        },
+        showLeaveButton: true,
+        showFullscreenButton: true,
+      });
+
+      callFrameRef.current = callFrame;
+
+      const handleJoined = async () => {
+        setStatus("Connected");
+        onJoinedRef.current?.();
+        if (owner) {
+          try {
+            await callFrame.startRecording({ layout: { preset: "default" } });
+          } catch (err) {
+            console.warn("Daily cloud recording did not start automatically.", err);
+          }
+        }
+      };
+
+      const handleLeft = () => {
+        setStatus("Left room");
+        onLeftRef.current?.();
+      };
+
+      const handleError = (event: any) => {
+        const message = event?.errorMsg || event?.error?.msg || "Unable to join the live room.";
+        setStatus(message);
+        onErrorRef.current?.(message);
+      };
+
+      callFrame.on("joined-meeting", handleJoined);
+      callFrame.on("left-meeting", handleLeft);
+      callFrame.on("error", handleError);
+
+      callFrame.join({ url: roomUrl, token, userName }).catch((err: any) => {
+        const message = err?.message || "Unable to join the live room.";
+        setStatus(message);
+        onErrorRef.current?.(message);
+      });
     };
 
-    const handleLeft = () => {
-      setStatus("Left room");
-      onLeftRef.current?.();
-    };
-
-    const handleError = (event: any) => {
-      const message = event?.errorMsg || event?.error?.msg || "Unable to join the live room.";
-      setStatus(message);
-      onErrorRef.current?.(message);
-    };
-
-    callFrame.on("joined-meeting", handleJoined);
-    callFrame.on("left-meeting", handleLeft);
-    callFrame.on("error", handleError);
-
-    callFrame.join({ url: roomUrl, token, userName }).catch((err: any) => {
-      const message = err?.message || "Unable to join the live room.";
+    setup().catch((err) => {
+      const message = err?.message || "Unable to set up the live room.";
       setStatus(message);
       onErrorRef.current?.(message);
     });
 
     return () => {
+      cancelled = true;
       const frame = callFrameRef.current;
       callFrameRef.current = null;
       if (frame) {
         if (owner) {
           frame.stopRecording?.().catch(() => {});
         }
-        frame.off("joined-meeting", handleJoined);
-        frame.off("left-meeting", handleLeft);
-        frame.off("error", handleError);
-        frame.destroy();
+        frame.off("joined-meeting");
+        frame.off("left-meeting");
+        frame.off("error");
+        pendingDestroyRef.current = frame.destroy().catch(() => {});
       }
     };
   }, [roomUrl, token, userName, owner]);

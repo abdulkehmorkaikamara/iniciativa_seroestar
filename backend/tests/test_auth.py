@@ -30,6 +30,42 @@ class AuthenticationTests(unittest.TestCase):
         self.assertNotEqual(password_hash, password)
         self.assertTrue(auth.verify_password(password, password_hash))
 
+    def test_password_reset_token_is_bound_to_current_password_hash(self):
+        password_hash = auth.get_password_hash("A-strong-test-password-2026")
+        token = auth.create_password_reset_token(14, "student@example.com", password_hash, "student")
+        payload = auth.decode_password_reset_token(token)
+        self.assertEqual(payload["id"], 14)
+        self.assertEqual(payload["sub"], "student@example.com")
+        self.assertEqual(payload["purpose"], "password_reset")
+        self.assertEqual(payload["role"], "student")
+        self.assertEqual(payload["pwd"], auth.password_hash_fingerprint(password_hash))
+
+    def test_teacher_password_reset_token_normalizes_to_the_tutor_role(self):
+        """The legacy "teacher" spelling is accepted and stored canonically."""
+        password_hash = auth.get_password_hash("A-different-strong-password-2026")
+        token = auth.create_password_reset_token(27, "teacher@example.com", password_hash, "teacher")
+        payload = auth.decode_password_reset_token(token)
+        self.assertEqual(payload["id"], 27)
+        self.assertEqual(payload["role"], "tutor")
+
+    def test_tutor_password_reset_token_round_trips(self):
+        password_hash = auth.get_password_hash("A-different-strong-password-2026")
+        token = auth.create_password_reset_token(27, "tutor@example.com", password_hash, "tutor")
+        payload = auth.decode_password_reset_token(token)
+        self.assertEqual(payload["id"], 27)
+        self.assertEqual(payload["role"], "tutor")
+
+    def test_developer_cannot_receive_password_reset_token(self):
+        password_hash = auth.get_password_hash("An-admin-password-that-is-not-resettable")
+        for role in ("admin", "developer"):
+            with self.assertRaises(ValueError):
+                auth.create_password_reset_token(1, "admin@example.com", password_hash, role)
+
+    def test_access_token_cannot_be_used_as_password_reset_token(self):
+        token = auth.create_access_token({"sub": "student@example.com", "role": "student", "id": 14})
+        with self.assertRaises(Exception):
+            auth.decode_password_reset_token(token)
+
 
 if __name__ == "__main__":
     unittest.main()

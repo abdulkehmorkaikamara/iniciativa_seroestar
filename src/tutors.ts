@@ -27,13 +27,6 @@ export const TUTOR_PROFILES: TutorProfile[] = [
     displayName: "Tutora Guerly",
     email: "guerly@seroestar.com",
     assignedLevels: ["A1", "A2"]
-  },
-  {
-    id: "lashika",
-    name: "Lashika",
-    displayName: "Tutora Lashika",
-    email: "lashika@seroestar.com",
-    assignedLevels: ["A1", "A2"]
   }
 ];
 

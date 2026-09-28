@@ -2,27 +2,53 @@ import json
 import os
 import random
 import re
+import hashlib
+import html
+import smtplib
+import ssl
 import subprocess
 import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import List, Dict, Set
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from .database import Base, engine, get_db
-from . import models, schemas, auth
+from .database import get_db, database_description
+from . import models, schemas, auth, roles, seed
 from .live_utils import build_room_details
 from .storage import store_upload
 from .tutors import TUTOR_PROFILES, find_tutor_by_email, find_tutor_by_name
 
-# Initialize local schemas automatically; production deployments use Alembic.
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-if ENVIRONMENT != "production" or os.getenv("AUTO_CREATE_TABLES", "false").lower() == "true":
-    Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Iniciativa SER o ESTAR: Spanish Academy Platform", version="1.0.0")
+# Result of the last bootstrap, surfaced by /api/health for diagnostics.
+BOOTSTRAP_STATE: dict = {"ok": False, "error": "Startup bootstrap has not run yet."}
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Ensure the schema and the three default portal logins exist.
+
+    Runs once per process start, including on every serverless cold start. It
+    is create-if-absent: an account already in the database keeps its stored
+    password, so restarting never resets a credential.
+    """
+    global BOOTSTRAP_STATE
+    BOOTSTRAP_STATE = seed.safe_startup_bootstrap()
+    yield
+
+
+app = FastAPI(
+    title="Iniciativa SER o ESTAR: Spanish Academy Platform",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
 if ENVIRONMENT != "production":
     os.makedirs("backend/uploads", exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="backend/uploads"), name="uploads")
@@ -40,10 +66,16 @@ if VERCEL_URL:
         allow_origins.append(vercel_origin)
 
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if ENVIRONMENT == "production" else "false").lower() == "true"
+# ADMIN_EMAIL / ADMIN_PASSWORD seed the root developer account on first boot
+# (see backend/seed.py). They are never compared against a login request: every
+# sign-in is verified against the bcrypt hash stored in the users table.
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 RECORDING_WEBHOOK_SECRET = os.getenv("RECORDING_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+PASSWORD_RESET_RESPONSE = "If an eligible account exists for this email, a password-reset link has been sent."
+# Stored role values eligible for self-service recovery, canonical and legacy.
+RECOVERABLE_ROLE_VALUES = tuple(sorted(set(roles.STUDENT_ROLE_VALUES) | set(roles.TUTOR_ROLE_VALUES)))
 
 if ENVIRONMENT == "production":
     missing_settings = [
@@ -77,9 +109,103 @@ app.add_middleware(
 )
 
 
+def _password_reset_app_url(request: Request) -> str:
+    configured_url = os.getenv("APP_URL", "").strip().rstrip("/")
+    if configured_url:
+        return configured_url
+    origin = request.headers.get("origin", "").strip().rstrip("/")
+    if origin:
+        return origin
+    if VERCEL_URL:
+        return f"https://{VERCEL_URL}"
+    return str(request.base_url).rstrip("/")
+
+
+def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASS", "")
+    from_email = os.getenv("SMTP_FROM_EMAIL", "").strip() or smtp_user
+    from_name = os.getenv("SMTP_FROM_NAME", "Iniciativa Ser o Estar").strip()
+    if not smtp_host or not smtp_user or not smtp_password or not from_email:
+        return False
+
+    safe_name = html.escape(full_name or "User")
+    safe_url = html.escape(reset_url, quote=True)
+    message = EmailMessage()
+    message["Subject"] = "Reset your Iniciativa Ser o Estar password"
+    message["From"] = f"{from_name} <{from_email}>"
+    message["To"] = recipient
+    message.set_content(
+        f"Hello {full_name or 'User'},\n\n"
+        "We received a request to reset your Iniciativa Ser o Estar account password.\n"
+        f"Open this link within 20 minutes: {reset_url}\n\n"
+        "If you did not request this change, you can safely ignore this email.\n\n"
+        "Iniciativa Ser o Estar"
+    )
+    message.add_alternative(
+        f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
+          <h2 style="color:#0f766e">Reset your password</h2>
+          <p>Hello {safe_name},</p>
+          <p>We received a request to reset your Iniciativa Ser o Estar account password.</p>
+          <p><a href="{safe_url}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Create a new password</a></p>
+          <p>This secure link expires in 20 minutes and can only be used once.</p>
+          <p style="color:#64748b;font-size:13px">If you did not request this change, you can safely ignore this email.</p>
+        </div>
+        """,
+        subtype="html",
+    )
+
+    if smtp_port == 465:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12, context=ssl.create_default_context()) as smtp:
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as smtp:
+            smtp.ehlo()
+            smtp.starttls(context=ssl.create_default_context())
+            smtp.ehlo()
+            smtp.login(smtp_user, smtp_password)
+            smtp.send_message(message)
+    return True
+
+
+def _password_reset_request_allowed(request: Request, email: str) -> bool:
+    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+    client_ip = request.client.host if request.client else "unknown"
+    email_key = hashlib.sha256(email.lower().encode("utf-8")).hexdigest()
+    key = f"{client_ip}:{email_key}"
+    window_seconds = 15 * 60
+    max_requests = 3
+    if not hasattr(_password_reset_request_allowed, "requests"):
+        _password_reset_request_allowed.requests = {}
+    requests = _password_reset_request_allowed.requests
+    entry = requests.get(key, {"count": 0, "first_ts": now_ts})
+    if now_ts - entry["first_ts"] > window_seconds:
+        entry = {"count": 0, "first_ts": now_ts}
+    if entry["count"] >= max_requests:
+        requests[key] = entry
+        return False
+    entry["count"] += 1
+    requests[key] = entry
+    return True
+
+
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "environment": ENVIRONMENT}
+    """Reports whether the API is talking to its persistent database."""
+    database_ready = bool(BOOTSTRAP_STATE.get("ok"))
+    payload = {
+        "status": "ok" if database_ready else "degraded",
+        "environment": ENVIRONMENT,
+        "database": database_description(),
+        "database_ready": database_ready,
+    }
+    if not database_ready and BOOTSTRAP_STATE.get("error"):
+        payload["detail"] = BOOTSTRAP_STATE["error"]
+    return payload
 
 
 @app.post("/api/chatbot")
@@ -155,23 +281,28 @@ chat_manager = LiveChatConnectionManager()
 
 
 def _request_auth_payload(request: Request, allowed_roles: set[str] | None = None) -> dict:
+    """Validate the bearer token/cookie and check the caller's canonical role.
+
+    Tokens issued before the developer/tutor rename still carry ``admin`` or
+    ``teacher``, so the role is normalized before it is compared.
+    """
     auth_header = request.headers.get("Authorization", "")
     token = auth_header.removeprefix("Bearer ").strip() if auth_header.startswith("Bearer ") else request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required.")
     payload = auth.decode_token(token)
-    role = str(payload.get("role") or "")
-    if allowed_roles and role not in allowed_roles:
+    if allowed_roles and not roles.role_matches(payload.get("role"), allowed_roles):
         raise HTTPException(status_code=403, detail="You do not have permission to perform this action.")
+    payload["role"] = roles.normalize_role(payload.get("role"))
     return payload
 
 
 def _require_admin(request: Request) -> dict:
-    return _request_auth_payload(request, {"admin"})
+    return _request_auth_payload(request, set(roles.DEVELOPER_ROLES))
 
 
 def _require_matching_student(request: Request, student_id_code: str, db: Session) -> models.StudentProfile:
-    payload = _request_auth_payload(request, {"student"})
+    payload = _request_auth_payload(request, {roles.STUDENT})
     student = db.query(models.StudentProfile).filter(models.StudentProfile.student_id_code == student_id_code).first()
     if not student or student.user_id != payload.get("id"):
         raise HTTPException(status_code=403, detail="You may only access your own student record.")
@@ -184,14 +315,21 @@ def _provision_live_room(session: models.LiveClassSession) -> dict:
     if not api_key:
         return room_details
 
+    properties = {
+        "enable_chat": True,
+        "start_video_off": False,
+    }
+    # Cloud recording requires a paid Daily plan; only request it when the
+    # deployment has explicitly opted in, so room creation still succeeds on
+    # a free-tier account instead of failing with "cannot be set to that
+    # value with your current plan".
+    if os.getenv("DAILY_ENABLE_CLOUD_RECORDING", "false").strip().lower() == "true":
+        properties["enable_recording"] = "cloud"
+
     payload = {
         "name": room_details["room_name"],
         "privacy": "private",
-        "properties": {
-            "enable_chat": True,
-            "enable_recording": "cloud",
-            "start_video_off": False,
-        },
+        "properties": properties,
     }
     try:
         request = urllib.request.Request(
@@ -224,6 +362,8 @@ def _provision_live_room(session: models.LiveClassSession) -> dict:
             token_data = json.loads(token_response.read().decode("utf-8"))
         room_details["join_token"] = token_data.get("token") or room_details["join_token"]
     except Exception as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
+        print(f"[live-room] Daily provisioning failed, falling back to a local room: {detail}")
         if ENVIRONMENT == "production":
             raise HTTPException(status_code=502, detail="The live classroom provider could not create the room.") from exc
         return room_details
@@ -254,6 +394,8 @@ def _create_daily_token(room_name: str, is_owner: bool = False, user_name: str |
         with urllib.request.urlopen(request, timeout=10) as token_response:
             token_data = json.loads(token_response.read().decode("utf-8"))
     except Exception as exc:
+        detail = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else str(exc)
+        print(f"[live-room] Daily token creation failed, falling back to demo-token: {detail}")
         if ENVIRONMENT == "production":
             raise HTTPException(status_code=502, detail="The live classroom access token could not be created.") from exc
         return "demo-token"
@@ -346,7 +488,7 @@ def _create_student_account(payload: schemas.StudentRegister, db: Session, statu
         email=payload.email,
         hashed_password=auth.get_password_hash(payload.password),
         full_name=payload.full_name,
-        role="student",
+        role=roles.STUDENT,
     )
     db.add(user)
     db.commit()
@@ -400,7 +542,7 @@ def _find_tutor_for_progress(db: Session, teacher_email: str | None = None, teac
     if teacher_email:
         user = db.query(models.User).filter(
             models.User.email == teacher_email,
-            models.User.role == "teacher",
+            models.User.role.in_(roles.TUTOR_ROLE_VALUES),
         ).first()
         if user:
             profile = db.query(models.TeacherProfile).filter(models.TeacherProfile.user_id == user.id).first()
@@ -410,7 +552,7 @@ def _find_tutor_for_progress(db: Session, teacher_email: str | None = None, teac
 
     if teacher_name:
         normalized = _normalize_teacher_name(teacher_name)
-        users = db.query(models.User).filter(models.User.role == "teacher").all()
+        users = db.query(models.User).filter(models.User.role.in_(roles.TUTOR_ROLE_VALUES)).all()
         for user in users:
             if _normalize_teacher_name(user.full_name) == normalized:
                 profile = db.query(models.TeacherProfile).filter(models.TeacherProfile.user_id == user.id).first()
@@ -631,7 +773,7 @@ def create_admin_teacher(payload: schemas.TeacherCreate, request: Request, db: S
         email=payload.email,
         hashed_password=auth.get_password_hash(payload.password),
         full_name=payload.full_name,
-        role="teacher",
+        role=roles.TUTOR,
     )
     db.add(user)
     db.commit()
@@ -654,6 +796,64 @@ def create_admin_teacher(payload: schemas.TeacherCreate, request: Request, db: S
         "role": user.role,
     }
 
+@app.post("/api/password/forgot", status_code=status.HTTP_202_ACCEPTED)
+def request_password_reset(payload: schemas.PasswordForgotRequest, request: Request, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+    if not _password_reset_request_allowed(request, email):
+        return {"detail": PASSWORD_RESET_RESPONSE}
+
+    user = db.query(models.User).filter(
+        models.User.email.ilike(email),
+        models.User.role.in_(RECOVERABLE_ROLE_VALUES),
+    ).first()
+    if user:
+        token = auth.create_password_reset_token(user.id, user.email, user.hashed_password, user.role)
+        query = urllib.parse.urlencode({
+            "reset_token": token,
+            "reset_role": roles.legacy_role(user.role) or roles.normalize_role(user.role),
+        })
+        reset_url = f"{_password_reset_app_url(request)}/?{query}"
+        try:
+            sent = _send_password_reset_email(user.email, user.full_name, reset_url)
+            if not sent:
+                if ENVIRONMENT != "production":
+                    print(f"[PASSWORD RESET DEVELOPMENT LINK] {reset_url}")
+                else:
+                    print("Password reset email was not sent because SMTP is not configured.")
+        except Exception as exc:
+            print(f"Password reset email delivery failed: {type(exc).__name__}")
+
+    return {"detail": PASSWORD_RESET_RESPONSE}
+
+
+@app.post("/api/password/reset")
+def reset_account_password(payload: schemas.PasswordResetRequest, response: Response, db: Session = Depends(get_db)):
+    try:
+        reset_claims = auth.decode_password_reset_token(payload.token)
+    except HTTPException:
+        raise HTTPException(status_code=400, detail="This password reset link is invalid or has expired.")
+
+    user = db.query(models.User).filter(
+        models.User.id == reset_claims.get("id"),
+        models.User.email.ilike(str(reset_claims.get("sub", "")).lower()),
+        models.User.role.in_(RECOVERABLE_ROLE_VALUES),
+    ).first()
+    # The claim is compared after normalization so a link issued before the
+    # developer/tutor rename still matches its account.
+    if user and roles.normalize_role(user.role) != roles.normalize_role(reset_claims.get("role")):
+        user = None
+    if not user or auth.password_hash_fingerprint(user.hashed_password) != reset_claims.get("pwd"):
+        raise HTTPException(status_code=400, detail="This password reset link is invalid or has already been used.")
+    if auth.verify_password(payload.new_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Choose a password you have not used for this account.")
+
+    user.hashed_password = auth.get_password_hash(payload.new_password)
+    user.password_changed_at = datetime.now(tz=timezone.utc)
+    db.commit()
+    response.delete_cookie("access_token", path="/", secure=COOKIE_SECURE, samesite="lax")
+    return {"detail": "Your password has been reset successfully. You can now sign in."}
+
+
 @app.post("/api/login")
 def login(request: Request, payload: schemas.LoginRequest, response: Response, db: Session = Depends(get_db)):
     # Basic in-memory rate limiter per IP to reduce brute force risk
@@ -673,26 +873,11 @@ def login(request: Request, payload: schemas.LoginRequest, response: Response, d
     if entry["count"] >= max_attempts:
         raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
 
-    if ADMIN_EMAIL and ADMIN_PASSWORD and payload.username.lower() == ADMIN_EMAIL and payload.password == ADMIN_PASSWORD:
-        token = auth.create_access_token(data={"sub": ADMIN_EMAIL, "role": "admin", "id": 0})
-        response.set_cookie(
-            key="access_token",
-            value=token,
-            httponly=True,
-            secure=COOKIE_SECURE,
-            samesite="lax",
-            max_age=60 * 60 * 4,
-            path="/",
-        )
-        return {
-            "access_token": token,
-            "token_type": "bearer",
-            "role": "admin",
-            "full_name": "Academy Administrator",
-            "email": ADMIN_EMAIL,
-        }
-
-    user = db.query(models.User).filter(models.User.email == payload.username).first()
+    # Every portal authenticates the same way: look the account up in the
+    # persistent database and compare against its stored bcrypt hash. There is
+    # no environment-variable or in-memory credential path.
+    email = payload.username.strip().lower()
+    user = db.query(models.User).filter(models.User.email.ilike(email)).first()
     if not user or not auth.verify_password(payload.password, user.hashed_password):
         entry["count"] += 1
         login.attempts[client_ip] = entry
@@ -700,30 +885,40 @@ def login(request: Request, payload: schemas.LoginRequest, response: Response, d
             status_code=401, detail="Incorrect email address or user password."
         )
 
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated.")
+
     # successful auth -> reset attempts
     if client_ip in login.attempts:
         del login.attempts[client_ip]
 
-    token = auth.create_access_token(data={"sub": user.email, "role": user.role, "id": user.id})
+    canonical_role = roles.normalize_role(user.role) or roles.STUDENT
+    user.last_login_at = datetime.now(tz=timezone.utc)
+    db.commit()
+    db.refresh(user)
+
+    token = auth.create_access_token(data={"sub": user.email, "role": canonical_role, "id": user.id})
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
         secure=COOKIE_SECURE,
         samesite="lax",
-        max_age=60 * 60 * 24,
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         path="/",
     )
 
     login_response = {
         "access_token": token,
         "token_type": "bearer",
-        "role": user.role,
+        "role": canonical_role,
+        # Kept so clients built against the admin/teacher spelling keep working.
+        "legacy_role": roles.legacy_role(canonical_role),
         "full_name": user.full_name,
         "email": user.email
     }
 
-    if user.role == "student":
+    if canonical_role == roles.STUDENT:
         student_profile = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == user.id).first()
         if student_profile:
             login_response.update({
@@ -733,7 +928,7 @@ def login(request: Request, payload: schemas.LoginRequest, response: Response, d
                 "class_group": student_profile.class_group,
                 "learning_mode": student_profile.learning_mode,
             })
-    elif user.role == "teacher":
+    elif roles.normalize_role(user.role) == roles.TUTOR:
         teacher_profile = db.query(models.TeacherProfile).filter(models.TeacherProfile.user_id == user.id).first()
         if teacher_profile:
             login_response.update({
@@ -758,25 +953,24 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Not authenticated.")
 
     payload = auth.decode_token(token)
-    if payload.get("role") == "admin" and payload.get("sub") == ADMIN_EMAIL:
-        return {
-            "id": 0,
-            "email": ADMIN_EMAIL,
-            "full_name": "Academy Administrator",
-            "role": "admin",
-        }
-    user = db.query(models.User).filter(models.User.email == payload.get("sub")).first()
+    subject = str(payload.get("sub") or "").strip().lower()
+    user = db.query(models.User).filter(models.User.email.ilike(subject)).first()
     if not user:
+        # The token is well formed but its account is gone from the database.
         raise HTTPException(status_code=401, detail="Authenticated user not found.")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated.")
 
+    canonical_role = roles.normalize_role(user.role) or roles.STUDENT
     response_payload = {
         "id": user.id,
         "email": user.email,
         "full_name": user.full_name,
-        "role": user.role
+        "role": canonical_role,
+        "legacy_role": roles.legacy_role(canonical_role),
     }
 
-    if user.role == "student":
+    if canonical_role == roles.STUDENT:
         student_profile = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == user.id).first()
         if student_profile:
             response_payload.update({
@@ -786,7 +980,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)):
                 "class_group": student_profile.class_group,
                 "learning_mode": student_profile.learning_mode,
             })
-    elif user.role == "teacher":
+    elif canonical_role == roles.TUTOR:
         teacher_profile = db.query(models.TeacherProfile).filter(models.TeacherProfile.user_id == user.id).first()
         if teacher_profile:
             response_payload.update({
@@ -808,7 +1002,7 @@ def logout(response: Response):
 # --- 2. Live Teaching Sessions & Attendance Tracking ---
 @app.post("/api/live-sessions", response_model=schemas.LiveSessionResponse)
 def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     session = models.LiveClassSession(
         title=payload.title,
         course_level=payload.course_level,
@@ -825,7 +1019,7 @@ def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db
 
 @app.post("/api/live-sessions/{session_id}/start", response_model=schemas.LiveRoomProvisionResponse)
 def start_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Class session not found.")
@@ -884,7 +1078,7 @@ def join_live_session(session_id: int, payload: schemas.LiveSessionJoinRequest, 
 
 @app.post("/api/live-sessions/{session_id}/end", response_model=schemas.LiveSessionResponse)
 def end_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Class session not found.")
@@ -903,14 +1097,14 @@ def end_live_session(session_id: int, request: Request, db: Session = Depends(ge
 
 @app.get("/api/live-sessions", response_model=List[schemas.LiveSessionResponse])
 def get_live_sessions(request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     _auto_mark_teacher_absences(db)
     return db.query(models.LiveClassSession).all()
 
 
 @app.get("/api/tutors")
 def list_tutors(request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     return _all_tutor_dicts(db)
 
 
@@ -921,8 +1115,8 @@ def get_teacher_progress(
     teacher_name: str | None = None,
     db: Session = Depends(get_db),
 ):
-    payload = _request_auth_payload(request, {"teacher", "admin"})
-    if payload.get("role") == "teacher":
+    payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    if roles.normalize_role(payload.get("role")) == roles.TUTOR:
         teacher_email = str(payload.get("sub") or "")
     _auto_mark_teacher_absences(db)
     tutor = _find_tutor_for_progress(db, teacher_email=teacher_email, teacher_name=teacher_name)
@@ -993,7 +1187,7 @@ def get_attendance_summary(student_id_code: str, request: Request, db: Session =
 
 @app.get("/api/attendance/session/{session_id}")
 def get_session_attendance(session_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     records = db.query(models.AttendanceRecord).filter(models.AttendanceRecord.session_id == session_id).all()
     return [
         {
@@ -1035,7 +1229,7 @@ def record_leave_class(payload: schemas.AttendanceJoinRequest, request: Request,
 # --- 3. Recordings & Course Library ---
 @app.get("/api/lesson-notes", response_model=List[schemas.LessonNoteResponse])
 def list_lesson_notes(request: Request, course_level: str | None = None, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     query = db.query(models.LessonNote).filter(models.LessonNote.shared_with_students.is_(True))
     if course_level:
         level_match = re.search(r"\b(A1|A2|B1)\b", course_level, re.IGNORECASE)
@@ -1053,7 +1247,7 @@ async def upload_lesson_note(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    auth_payload = _request_auth_payload(request, {"teacher", "admin"})
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
     original_name = file.filename or "shared-material"
     extension = os.path.splitext(original_name)[1].lower()
     allowed_extensions = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".png", ".jpg", ".jpeg", ".mp3", ".mp4"}
@@ -1091,14 +1285,14 @@ async def upload_lesson_note(
 
 @app.get("/api/recordings", response_model=List[schemas.RecordingResponse])
 def list_recordings(request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     return db.query(models.RecordedClass).order_by(models.RecordedClass.id.desc()).all()
 
 
 @app.post("/api/recordings/webhook", response_model=schemas.RecordingResponse)
 def create_recording_from_webhook(payload: dict, request: Request, db: Session = Depends(get_db)):
     try:
-        _request_auth_payload(request, {"teacher", "admin"})
+        _request_auth_payload(request, set(roles.STAFF_ROLES))
     except HTTPException:
         if not RECORDING_WEBHOOK_SECRET or request.headers.get("x-recording-webhook-secret") != RECORDING_WEBHOOK_SECRET:
             raise HTTPException(status_code=403, detail="Invalid recording webhook signature.")
@@ -1132,13 +1326,13 @@ def create_recording_from_webhook(payload: dict, request: Request, db: Session =
 
 @app.get("/api/courses", response_model=List[schemas.CourseResponse])
 def list_courses(request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     return db.query(models.Course).filter(models.Course.published.is_(True)).all()
 
 
 @app.post("/api/courses", response_model=schemas.CourseResponse)
 def create_course(payload: schemas.CourseCreate, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     data = payload.dict()
     module_payloads = data.pop("modules", [])
     course = models.Course(**data)
@@ -1160,7 +1354,7 @@ def create_course(payload: schemas.CourseCreate, request: Request, db: Session =
 
 @app.get("/api/courses/{course_id}", response_model=schemas.CourseResponse)
 def get_course(course_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"student", "teacher", "admin"})
+    _request_auth_payload(request, set(roles.ALL_ROLES))
     course = db.query(models.Course).filter(models.Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found.")
@@ -1169,7 +1363,7 @@ def get_course(course_id: int, request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/courses/{course_id}/modules", response_model=schemas.CourseModuleResponse)
 def create_course_module(course_id: int, payload: schemas.CourseModuleCreate, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     course = db.query(models.Course).filter(models.Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found.")
@@ -1186,7 +1380,7 @@ def create_course_module(course_id: int, payload: schemas.CourseModuleCreate, re
 
 @app.post("/api/modules/{module_id}/lessons", response_model=schemas.CourseLessonResponse)
 def create_course_lesson(module_id: int, payload: schemas.CourseLessonCreate, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     module = db.query(models.CourseModule).filter(models.CourseModule.id == module_id).first()
     if not module:
         raise HTTPException(status_code=404, detail="Module not found.")
@@ -1199,7 +1393,7 @@ def create_course_lesson(module_id: int, payload: schemas.CourseLessonCreate, re
 
 @app.post("/api/courses/{course_id}/enroll", response_model=schemas.EnrollmentResponse)
 def enroll_student(course_id: int, payload: schemas.EnrollmentRequest, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     course = db.query(models.Course).filter(models.Course.id == course_id).first()
     if not course:
         raise HTTPException(status_code=404, detail="Course not found.")
@@ -1321,7 +1515,7 @@ async def upload_lesson_media(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    _request_auth_payload(request, {"teacher", "admin"})
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
     lesson = db.query(models.CourseLesson).filter(models.CourseLesson.id == lesson_id).first()
     if not lesson:
         raise HTTPException(status_code=404, detail="Lesson not found.")
@@ -1420,7 +1614,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int, db: Session 
         payload = auth.decode_token(token) if token else None
     except HTTPException:
         payload = None
-    if not payload or payload.get("role") not in {"student", "teacher", "admin"}:
+    if not payload or not roles.role_matches(payload.get("role"), roles.ALL_ROLES):
         await websocket.close(code=4401)
         return
     await chat_manager.connect(websocket, session_id)
