@@ -2041,7 +2041,7 @@ Spanish:
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
                 {/* Instructor 1 */}
                 <motion.div
                   whileHover={{ scale: 1.025, y: -4 }}
@@ -2051,9 +2051,11 @@ Spanish:
                   <div className="space-y-4">
                     {/* Stylized Avatar header with lettermark */}
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-orange-500 to-amber-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        XV
-                      </div>
+                      <img
+                        src="/src/assets/images/team_xiomara.jpg"
+                        alt="Xiomara"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
                           Xiomara
@@ -2088,9 +2090,11 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-teal-500 to-emerald-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        IF
-                      </div>
+                      <img
+                        src="/src/assets/images/team_ivoneth.jpg"
+                        alt="Ivoneth"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
                           Ivoneth
@@ -2125,9 +2129,11 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-500 to-indigo-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        GU
-                      </div>
+                      <img
+                        src="/src/assets/images/team_guerly.jpg"
+                        alt="Guerly"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight text-left">
                           Guerly
@@ -2154,7 +2160,7 @@ Spanish:
                   </div>
                 </motion.div>
 
-                {/* Instructor 4 */}
+                {/* Instructor 4 (Abdul) */}
                 <motion.div
                   whileHover={{ scale: 1.025, y: -4 }}
                   transition={{ type: "spring", stiffness: 350, damping: 22 }}
@@ -2162,46 +2168,11 @@ Spanish:
                 >
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-500 to-sky-500 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        LA
-                      </div>
-                      <div>
-                        <h4 className="font-sans font-black text-slate-900 text-base leading-tight text-left">
-                          Lashika
-                        </h4>
-                        <p className="text-xs text-cyan-700 font-semibold text-left">
-                          {courseLang === "EN" ? "Live Practice Facilitator" : "Facilitadora de Práctica en Vivo"}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="h-0.5 bg-slate-50 w-full" />
-                    <p className="text-xs sm:text-sm text-slate-600 leading-relaxed text-left">
-                      {courseLang === "EN"
-                        ? "Lashika supports oral practice, revision classes, and extra sessions so learners can recover missed concepts and build speaking confidence."
-                        : "Lashika apoya la práctica oral, las clases de repaso y las sesiones extra para que los estudiantes recuperen conceptos y ganen confianza al hablar."}
-                    </p>
-                  </div>
-                  <div className="pt-3 border-t border-slate-50/80 mt-auto flex flex-col space-y-1.5 text-left">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                      {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
-                    </span>
-                    <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "Conversation drills, recovery sessions, and student support." : "Práctica conversacional, sesiones de recuperación y apoyo estudiantil."}
-                    </span>
-                  </div>
-                </motion.div>
-
-                {/* Instructor 5 */}
-                <motion.div
-                  whileHover={{ scale: 1.025, y: -4 }}
-                  transition={{ type: "spring", stiffness: 350, damping: 22 }}
-                  className="bg-white rounded-3xl border border-slate-100 shadow-md hover:shadow-xl transition-all duration-300 p-6 space-y-5 flex flex-col justify-between"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-center space-x-4">
-                      <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-slate-600 to-slate-800 text-white flex items-center justify-center font-black text-xl shadow-md shrink-0">
-                        AB
-                      </div>
+                      <img
+                        src="/src/assets/images/team_abdul.jpg"
+                        alt="Abdul"
+                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                      />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight text-left">
                           Abdul
