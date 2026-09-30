@@ -69,8 +69,8 @@ COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true" if ENVIRONMENT == "production"
 # ADMIN_EMAIL / ADMIN_PASSWORD seed the root developer account on first boot
 # (see backend/seed.py). They are never compared against a login request: every
 # sign-in is verified against the bcrypt hash stored in the users table.
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "").strip().lower()
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
+ADMIN_EMAIL = (os.getenv("SEED_DEVELOPER_EMAIL") or os.getenv("ADMIN_EMAIL", "")).strip().lower()
+ADMIN_PASSWORD = os.getenv("SEED_DEVELOPER_PASSWORD") or os.getenv("ADMIN_PASSWORD", "")
 RECORDING_WEBHOOK_SECRET = os.getenv("RECORDING_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PASSWORD_RESET_RESPONSE = "If an eligible account exists for this email, a password-reset link has been sent."
@@ -81,8 +81,8 @@ if ENVIRONMENT == "production":
     missing_settings = [
         name for name, value in {
             "FRONTEND_ORIGINS or VERCEL_URL": FRONTEND_ORIGINS or VERCEL_URL,
-            "ADMIN_EMAIL": ADMIN_EMAIL,
-            "ADMIN_PASSWORD": ADMIN_PASSWORD,
+            "SEED_DEVELOPER_EMAIL or ADMIN_EMAIL": ADMIN_EMAIL,
+            "SEED_DEVELOPER_PASSWORD or ADMIN_PASSWORD": ADMIN_PASSWORD,
             "DAILY_API_KEY": os.getenv("DAILY_API_KEY"),
             "BLOB_READ_WRITE_TOKEN": os.getenv("BLOB_READ_WRITE_TOKEN"),
             "RECORDING_WEBHOOK_SECRET": RECORDING_WEBHOOK_SECRET,
@@ -93,7 +93,7 @@ if ENVIRONMENT == "production":
     if len(os.getenv("JWT_SECRET", "")) < 48:
         raise RuntimeError("JWT_SECRET must contain at least 48 characters in production.")
     if len(ADMIN_PASSWORD) < 16:
-        raise RuntimeError("ADMIN_PASSWORD must contain at least 16 characters in production.")
+        raise RuntimeError("SEED_DEVELOPER_PASSWORD (or ADMIN_PASSWORD) must contain at least 16 characters in production.")
     if len(RECORDING_WEBHOOK_SECRET) < 32:
         raise RuntimeError("RECORDING_WEBHOOK_SECRET must contain at least 32 characters in production.")
     if "*" in allow_origins:
