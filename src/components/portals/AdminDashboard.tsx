@@ -42,16 +42,6 @@ interface AdminDashboardProps {
   lang?: "EN" | "ES";
 }
 
-// Mock school telemetry data for Recharts chart
-const MOCK_GROWTH_DATA = [
-  { month: "Jan", students: 18, attendance: 92, sessions: 28 },
-  { month: "Feb", students: 25, attendance: 90, sessions: 32 },
-  { month: "Mar", students: 34, attendance: 89, sessions: 40 },
-  { month: "Apr", students: 48, attendance: 94, sessions: 46 },
-  { month: "May", students: 62, attendance: 92, sessions: 58 },
-  { month: "Jun", students: 78, attendance: 95, sessions: 65 }
-];
-
 const readLocalList = (key: string) => {
   try {
     const raw = localStorage.getItem(key);
@@ -152,6 +142,10 @@ const mirrorLocalStudentAccount = (payload: any, studentIdCode?: string) => {
   const now = new Date().toISOString();
   const existingIndex = existing.findIndex((student: any) => String(student.email || "").toLowerCase() === email);
   const current = existingIndex >= 0 ? existing[existingIndex] : {};
+  // No `password` field: this mirror exists only so the roster can still
+  // render (name/email/course info) if the real API is briefly unreachable
+  // — localStudentsForAdmin() never reads a password back — so there is no
+  // reason to keep a plaintext copy of it sitting in browser storage.
   const student = {
     ...current,
     fullName: payload.full_name || current.fullName || current.full_name,
@@ -160,7 +154,7 @@ const mirrorLocalStudentAccount = (payload: any, studentIdCode?: string) => {
       existing.map((record: any) => record.studentIdCode || record.student_id_code).filter(Boolean),
     ),
     email,
-    password: payload.password || current.password,
+    password: undefined,
     phoneNumber: payload.phone_number || current.phoneNumber || current.phone_number || "",
     courseLevel: payload.course_level || current.courseLevel || current.course_level || "A1",
     classGroup: payload.class_group || current.classGroup || current.class_group || "Morning Group",
@@ -224,6 +218,8 @@ const mirrorLocalTeacherAccount = (payload: any, teacherId?: string) => {
   const assignedLevels = Array.isArray(payload.assigned_levels) && payload.assigned_levels.length
     ? payload.assigned_levels
     : current.assignedLevels || current.assigned_levels || ["A1"];
+  // No `password` field here either — see the matching comment in
+  // mirrorLocalStudentAccount above; localTeachersForAdmin() never reads it.
   const teacher = {
     ...current,
     fullName: payload.full_name || current.fullName || current.full_name || current.name,
@@ -233,7 +229,7 @@ const mirrorLocalTeacherAccount = (payload: any, teacherId?: string) => {
       existing.map((record: any) => record.teacherId || record.teacher_id_code).filter(Boolean),
     ),
     email,
-    password: payload.password || current.password,
+    password: undefined,
     assignedLevels,
     createdAt: current.createdAt || current.created_at || new Date().toISOString(),
   };
@@ -540,12 +536,26 @@ export default function AdminDashboard({
   const teacherAttendanceAverage = teacherProgress.length
     ? Math.round(teacherProgress.reduce((sum, teacher) => sum + (teacher.attendance?.rate ?? 100), 0) / teacherProgress.length)
     : 100;
+  const totalCompletedClasses = teacherProgress.reduce((sum, teacher) => sum + (teacher.completed_classes || 0), 0);
+  const totalLiveClassesNow = teacherProgress.reduce((sum, teacher) => sum + (teacher.live_classes || 0), 0);
 
-  // Stats Counters
+  // Real per-tutor breakdown for the telemetry chart, derived from the same
+  // teacherProgress data the stat cards use — replaces a previous chart
+  // that plotted six months of entirely fabricated numbers.
+  const tutorTelemetryChartData = teacherProgress.map((teacher) => ({
+    name: teacher.display_name || teacher.teacher_name || teacher.email || "Tutor",
+    completed: teacher.completed_classes || 0,
+    attendanceRate: teacher.attendance?.rate ?? 0,
+  }));
+
+  // Stats Counters — every value below is computed from real data returned
+  // by the backend (peopleStudents, teacherProgress); none are hardcoded
+  // placeholders, so a fresh install correctly shows zeros instead of a
+  // fake baseline.
   const telemetryStats = [
-    { title: d("Total Enrolled Students", "Estudiantes Inscritos Totales"), value: peopleStudents.length ? d(`${peopleStudents.length} active`, `${peopleStudents.length} activos`) : d("78 active", "78 activos"), icon: Users, change: d("Server-side enrollment", "Inscripción desde servidor"), color: "text-teal-600" },
-    { title: d("Avg Class Roster Attendance", "Asistencia Promedio de Clase"), value: "93.4%", icon: Award, change: d("Goal: >90%", "Meta: >90%"), color: "text-emerald-600" },
-    { title: d("Live Classes Completed", "Clases en Vivo Completadas"), value: d("309 sessions", "309 sesiones"), icon: Layers, change: d("15 active weekly", "15 activas por semana"), color: "text-indigo-600" },
+    { title: d("Total Enrolled Students", "Estudiantes Inscritos Totales"), value: d(`${peopleStudents.length} active`, `${peopleStudents.length} activos`), icon: Users, change: d("Server-side enrollment", "Inscripción desde servidor"), color: "text-teal-600" },
+    { title: d("Avg Class Roster Attendance", "Asistencia Promedio de Clase"), value: `${teacherAttendanceAverage}%`, icon: Award, change: d("Goal: >90%", "Meta: >90%"), color: "text-emerald-600" },
+    { title: d("Live Classes Completed", "Clases en Vivo Completadas"), value: d(`${totalCompletedClasses} sessions`, `${totalCompletedClasses} sesiones`), icon: Layers, change: d(`${totalLiveClassesNow} live now`, `${totalLiveClassesNow} en vivo ahora`), color: "text-indigo-600" },
     { title: d("Tutor Hours Logged", "Horas de Tutor Registradas"), value: `${totalTeacherHours}h`, icon: Clock, change: d(`${teacherAttendanceAverage}% tutor attendance`, `${teacherAttendanceAverage}% asistencia tutor`), color: "text-orange-500" }
   ];
 
@@ -932,22 +942,28 @@ export default function AdminDashboard({
         <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
           <div className="pb-3 border-b border-slate-100">
             <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">
-              {d("Student Registration and Engagement Telemetry", "Telemetría de Registro y Participación de Alumnos")}
+              {d("Tutor Attendance and Completed Classes", "Asistencia de Tutores y Clases Completadas")}
             </h3>
           </div>
 
-          <div className="h-[230px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={MOCK_GROWTH_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '12px' }} />
-                <Area type="monotone" dataKey="attendance" fill="#2dd4bf" fillOpacity={0.1} stroke="#14b8a6" strokeWidth={2} name={d("Attendance Rate %", "Tasa de Asistencia %")} />
-                <Bar dataKey="students" fill="#f97316" radius={[4, 4, 0, 0]} name={d("Active Enrolled Stu", "Alumnos Activos Inscritos")} barSize={20} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+          {tutorTelemetryChartData.length === 0 ? (
+            <div className="h-[230px] flex items-center justify-center text-xs text-slate-400 font-semibold text-center px-6">
+              {d("No tutor activity recorded yet.", "Aún no hay actividad de tutores registrada.")}
+            </div>
+          ) : (
+            <div className="h-[230px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={tutorTelemetryChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                  <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                  <Tooltip contentStyle={{ fontSize: '11px', borderRadius: '12px' }} />
+                  <Area type="monotone" dataKey="attendanceRate" fill="#2dd4bf" fillOpacity={0.1} stroke="#14b8a6" strokeWidth={2} name={d("Attendance Rate %", "Tasa de Asistencia %")} />
+                  <Bar dataKey="completed" fill="#f97316" radius={[4, 4, 0, 0]} name={d("Completed Classes", "Clases Completadas")} barSize={20} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
         {/* Dynamic Image Slots Swapper Console */}
