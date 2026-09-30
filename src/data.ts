@@ -163,7 +163,7 @@ export const BLOG_POSTS: BlogPost[] = [
     id: "face-to-face-spanish-when-needed",
     title: "Flexible Spanish Learning: Online First, Face-to-Face When Needed",
     excerpt: "Our classes are built for modern online learning, but when learners need closer guidance, we can also deliver focused face-to-face Spanish sessions for small groups and special learning needs.",
-    imageUrl: "/src/assets/images/blog_face_to_face_ambassador_warm_studio.png",
+    imageUrl: "/images/blog_face_to_face_ambassador_warm_studio.png",
     readTime: "4 min read",
     category: "Learning Model",
     contentMarkdown: `### Flexible Spanish Learning: Online First, Face-to-Face When Needed
@@ -189,7 +189,7 @@ Whether online or in person, our mission remains the same: to help students unde
     id: "spanish-diplomacy-sierra-leone",
     title: "Spanish Language Diplomacy Reaches Sierra Leone",
     excerpt: "The Embassy of Spain in Guinea highlighted Ambassador Carrascal's eighth official visit to Sierra Leone, connecting Independence Day events with World Spanish Language Day initiatives.",
-    imageUrl: "/src/assets/images/blog_spanish_embassy_sierra_leone.png",
+    imageUrl: "/images/blog_spanish_embassy_sierra_leone.png",
     readTime: "3 min read",
     category: "Culture News",
     contentMarkdown: `### Spanish Language Diplomacy Reaches Sierra Leone
@@ -207,7 +207,7 @@ At Iniciativa Ser o Estar, we see this as a clear sign that Spanish learning in 
     id: "spanish-gains-ground-africa",
     title: "Spanish Gains Ground in Africa",
     excerpt: "Across African classrooms and universities, interest in Spanish is growing as students connect the language with culture, study pathways, diplomacy, and international opportunity.",
-    imageUrl: "/src/assets/images/blog_spanish_gains_ground_africa.png",
+    imageUrl: "/images/blog_spanish_gains_ground_africa.png",
     readTime: "4 min read",
     category: "Language Access",
     contentMarkdown: `### Spanish Gains Ground in Africa
@@ -227,7 +227,7 @@ For Sierra Leonean learners, this growth is especially exciting. A stronger Span
     id: "ser-estar-mistakes",
     title: "The 5 most common mistakes when using Ser & Estar",
     excerpt: "Why is 'Estoy aburrido' completely different from 'Soy aburrido'? Discover the subtle nuances of being Spanish and how avoiding these 5 simple traps will make you sound instantly native.",
-    imageUrl: "/src/assets/images/ser_estar_mistakes_1782078058079.jpg",
+    imageUrl: "/images/ser_estar_mistakes_1782078058079.jpg",
     readTime: "4 min read",
     category: "Grammar Hacks",
     contentMarkdown: `### The 5 Most Common Mistakes and How to Avoid Them
@@ -263,7 +263,7 @@ Learning Spanish as an English speaker is an adventure. However, one of the firs
     id: "travel-rescue",
     title: "How to survive your first trip: Essential Vocabulary",
     excerpt: "Nervous about your first conversation in Spain or Latin America? Master these critical phrases for ordering tapas, finding transport, and making friendly local connections.",
-    imageUrl: "/src/assets/images/spain_travel_guide_1782078073592.jpg",
+    imageUrl: "/images/spain_travel_guide_1782078073592.jpg",
     readTime: "6 min read",
     category: "Travel Prep",
     contentMarkdown: `### How to Survive Your First Trip to a Spanish-Speaking Country
@@ -293,7 +293,7 @@ Spanish speakers are notoriously warm. Reciprocate with these friendly starters:
     id: "brain-health",
     title: "Why learning Spanish is a premier brain workout",
     excerpt: "Did you know that speaking a second language alters your physical brain structure? Explore the fascinating science behind cognitive plasticity and bilingualism in adult learners.",
-    imageUrl: "/src/assets/images/bilingual_brain_workout_1782078086117.jpg",
+    imageUrl: "/images/bilingual_brain_workout_1782078086117.jpg",
     readTime: "5 min read",
     category: "Science",
     contentMarkdown: `### Why Learning Spanish is an Elite Cognitive Workout
@@ -321,8 +321,8 @@ export const TESTIMONIALS: Testimonial[] = [
     location: "Sierra Leone",
     rating: 5,
     text: "I finally completed my Spanish course.. 💃 Highly recommend Iniciativa Ser o Estar for adult learners seeking cognitive grammar breakthroughs and real speech fluency!",
-    avatarUrl: "/src/assets/images/graduated_cohort_sierra_leone_original.jpeg",
-    imageUrl: "/src/assets/images/graduated_cohort_sierra_leone_original.jpeg",
+    avatarUrl: "/images/graduated_cohort_sierra_leone_original.jpeg",
+    imageUrl: "/images/graduated_cohort_sierra_leone_original.jpeg",
     imageFit: "contain"
   },
   {
