@@ -549,12 +549,14 @@ export default function AdminDashboard({
     { title: d("Tutor Hours Logged", "Horas de Tutor Registradas"), value: `${totalTeacherHours}h`, icon: Clock, change: d(`${teacherAttendanceAverage}% tutor attendance`, `${teacherAttendanceAverage}% asistencia tutor`), color: "text-orange-500" }
   ];
 
-  // Map of static images we allow replaced
+  // Map of static images we allow replaced. Only slots that are actually
+  // wired to a real image override on the page belong here — see
+  // imageOverrides["Hero Banner"] in App.tsx. The other three historical
+  // slots (Ser Metaphor Compass, Estar Metaphor Map, Methodology Classroom)
+  // were removed: they had no corresponding image element on the page at
+  // all, so selecting them and "saving" a replacement silently did nothing.
   const websiteImageSlots = [
-    { slot: "Hero Banner", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/src/assets/images/hero_classroom.jpg" },
-    { slot: "Ser Metaphor Compass", description: d("Infographic card displaying the permanent identity blueprint.", "Tarjeta infográfica que muestra el esquema de identidad permanente."), current: "/src/assets/images/mystery_ser.jpg" },
-    { slot: "Estar Metaphor Map", description: d("Infographic map displaying coordinates and temporary state indices.", "Mapa infográfico que muestra las coordenadas y los índices de estados temporales."), current: "/src/assets/images/mystery_estar.jpg" },
-    { slot: "Methodology Classroom", description: d("Cover photo illustrating face-to-face active class discussions.", "Foto de portada que ilustra las discusiones activas en clase presencial."), current: "/src/assets/images/methodology_photo.jpg" }
+    { slot: "Hero Banner", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.jpg" }
   ];
 
   // Submit Blog
