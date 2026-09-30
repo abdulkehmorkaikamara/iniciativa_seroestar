@@ -408,7 +408,6 @@ export default function AdminDashboard({
       let payload = await readApiPayload(response);
       let createdViaFallback = false;
       let createdViaBrowserFallback = false;
-      let refreshedExistingLocal = false;
 
       if (response.status === 404) {
         const fallbackResponse = await fetch("/api/register", {
@@ -428,9 +427,17 @@ export default function AdminDashboard({
         }
       } else if (!response.ok) {
         if (response.status === 400 && isDuplicateAccountError(payload)) {
-          const mirrored = mirrorLocalStudentAccount(studentPayload);
-          payload = { ...payload, student_id_code: mirrored.studentIdCode };
-          refreshedExistingLocal = true;
+          // An account with this email already exists in the real database.
+          // Earlier this silently mirrored the new password into local
+          // browser storage and reported success, without ever touching the
+          // real account — meaning the "new" password never actually worked
+          // for login. Surface it as the error it actually is instead.
+          throw new Error(
+            d(
+              "An account with this email already exists. Use the student's original password, or change it via the database — this form cannot reset an existing account's password.",
+              "Ya existe una cuenta con este correo. Usa la contraseña original del estudiante, o cámbiala a través de la base de datos — este formulario no puede restablecer la contraseña de una cuenta existente."
+            )
+          );
         } else {
           throw new Error(apiErrorMessage(payload, "Unable to create student account.", response.status));
         }
@@ -441,8 +448,8 @@ export default function AdminDashboard({
       setPeopleMessage({
         type: "success",
         text: d(
-          `${refreshedExistingLocal ? "Student login refreshed" : "Student created"}. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (browser fallback)" : createdViaFallback ? " (registration fallback)" : refreshedExistingLocal ? " (local access)" : ""}`,
-          `${refreshedExistingLocal ? "Acceso del estudiante actualizado" : "Estudiante creado"}. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : createdViaFallback ? " (registro alternativo)" : refreshedExistingLocal ? " (acceso local)" : ""}`
+          `Student created. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (browser fallback)" : createdViaFallback ? " (registration fallback)" : ""}`,
+          `Estudiante creado. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : createdViaFallback ? " (registro alternativo)" : ""}`
         )
       });
       setStudentFullName("");
@@ -480,7 +487,6 @@ export default function AdminDashboard({
       });
       let payload = await readApiPayload(response);
       let createdViaBrowserFallback = false;
-      let refreshedExistingLocal = false;
       if (!response.ok) {
         if (response.status === 404) {
           payload = createLocalTeacherAccount({
@@ -491,14 +497,15 @@ export default function AdminDashboard({
           });
           createdViaBrowserFallback = true;
         } else if (response.status === 400 && isDuplicateAccountError(payload)) {
-          const mirrored = mirrorLocalTeacherAccount({
-            full_name: teacherFullName,
-            email: teacherEmail,
-            password: teacherPassword,
-            assigned_levels: assignedLevels.length ? assignedLevels : ["A1"]
-          });
-          payload = { ...payload, teacher_id_code: mirrored.teacherId };
-          refreshedExistingLocal = true;
+          // See the matching comment in handleCreateStudentAccount: this used
+          // to silently mirror the new password to local storage and report
+          // success without ever touching the real account.
+          throw new Error(
+            d(
+              "An account with this email already exists. Use the tutor's original password, or change it via the database — this form cannot reset an existing account's password.",
+              "Ya existe una cuenta con este correo. Usa la contraseña original del tutor, o cámbiala a través de la base de datos — este formulario no puede restablecer la contraseña de una cuenta existente."
+            )
+          );
         } else {
           throw new Error(apiErrorMessage(payload, "Unable to create teacher account.", response.status));
         }
@@ -514,8 +521,8 @@ export default function AdminDashboard({
       setPeopleMessage({
         type: "success",
         text: d(
-          `${refreshedExistingLocal ? "Teacher login refreshed" : "Teacher created"}. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (browser fallback)" : refreshedExistingLocal ? " (local access)" : ""}`,
-          `${refreshedExistingLocal ? "Acceso del profesor actualizado" : "Profesor creado"}. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : refreshedExistingLocal ? " (acceso local)" : ""}`
+          `Teacher created. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (browser fallback)" : ""}`,
+          `Profesor creado. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : ""}`
         )
       });
       setTeacherFullName("");
