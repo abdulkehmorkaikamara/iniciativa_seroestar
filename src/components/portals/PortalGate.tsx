@@ -18,6 +18,7 @@ import { motion } from "motion/react";
 
 import { TRANSLATIONS } from "../../translations";
 import { normalizeRole, portalRoleToCanonical, roleMatchesPortal } from "../../roles";
+import PasswordInput from "../PasswordInput";
 
 interface PortalGateProps {
   role: "student" | "teacher" | "admin";
@@ -538,13 +539,12 @@ May 2026`,
               {lang === "EN" ? "Security Password" : "Contraseña de Seguridad"}
             </label>
             <div className="relative">
-              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="password"
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+              <PasswordInput
                 placeholder={t.gatePassPlaceholder}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
+                className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
                 required
               />
             </div>
@@ -660,15 +660,14 @@ May 2026`,
                 {lang === "ES" ? "Nueva contraseña" : "New password"}
               </label>
               <div className="relative">
-                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="password"
+                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+                <PasswordInput
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   minLength={12}
                   maxLength={72}
                   autoComplete="new-password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
+                  className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
                   required
                 />
               </div>
@@ -678,15 +677,14 @@ May 2026`,
                 {lang === "ES" ? "Confirmar nueva contraseña" : "Confirm new password"}
               </label>
               <div className="relative">
-                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="password"
+                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 z-10" />
+                <PasswordInput
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   minLength={12}
                   maxLength={72}
                   autoComplete="new-password"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
+                  className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs focus:outline-none focus:border-teal-500 focus:bg-white"
                   required
                 />
               </div>

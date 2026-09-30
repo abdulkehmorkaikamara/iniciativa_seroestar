@@ -30,6 +30,7 @@ import {
   CartesianGrid
 } from "recharts";
 import { TUTOR_PROFILES } from "../../tutors";
+import PasswordInput from "../PasswordInput";
 
 interface AdminDashboardProps {
   onExit: () => void;
@@ -754,8 +755,7 @@ export default function AdminDashboard({
                 onChange={(e) => setStudentEmail(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
               />
-              <input
-                type="password"
+              <PasswordInput
                 required
                 placeholder={d("Temporary password", "Contraseña temporal")}
                 value={studentPassword}
@@ -834,8 +834,7 @@ export default function AdminDashboard({
                 onChange={(e) => setTeacherEmail(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
               />
-              <input
-                type="password"
+              <PasswordInput
                 required
                 placeholder={d("Temporary password", "Contraseña temporal")}
                 value={teacherPassword}
