@@ -28,14 +28,11 @@ interface TeacherDashboardProps {
   lang?: "EN" | "ES";
 }
 
-// Initial mock records for attendance reports
-const INITIAL_STUDENT_ROSTER = [
-  { id: "S01", code: "SER-219", name: "Sarah Jane", level: "A1", present: 14, absent: 1, late: 2, pct: 89 },
-  { id: "S02", code: "ESTAR-492", name: "John Doe", level: "A1", present: 15, absent: 2, late: 0, pct: 88 },
-  { id: "S03", code: "SER-784", name: "Alex Miller", level: "A1", present: 16, absent: 1, late: 0, pct: 94 },
-  { id: "S04", code: "SER-112", name: "Elena Garcia", level: "A2", present: 17, absent: 0, late: 0, pct: 100 },
-  { id: "S05", code: "ESTAR-303", name: "Emma Watson", level: "B1", present: 12, absent: 4, late: 1, pct: 76 }
-];
+// This roster was never wired to a real backend endpoint — it rendered
+// the same five fake students (Sarah Jane, John Doe, etc.) permanently
+// for every tutor, including in the CSV export. No per-tutor roster/
+// attendance endpoint exists yet, so this now honestly starts empty
+// rather than pretend five students are enrolled.
 
 export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNote, onAddRecording, lang = "EN" }: TeacherDashboardProps) {
   const d = (en: string, es: string) => (lang === "ES" ? es : en);
@@ -146,7 +143,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [recVideoUrl, setRecVideoUrl] = useState("");
 
   // Attendance filter
-  const [roster, setRoster] = useState(INITIAL_STUDENT_ROSTER);
+  const [roster, setRoster] = useState<Array<{ id: string; code: string; name: string; level: string; present: number; absent: number; late: number; pct: number }>>([]);
   const [rosterSearch, setRosterSearch] = useState("");
 
   // Cohort announcement builder
@@ -770,6 +767,13 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {filteredRoster.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-xs text-slate-400 font-semibold">
+                      {d("No attendance records yet.", "Aún no hay registros de asistencia.")}
+                    </td>
+                  </tr>
+                )}
                 {filteredRoster.map((item, idx) => (
                   <tr key={idx} className="hover:bg-slate-50">
                     <td className="p-3 font-mono text-[10px] font-bold text-teal-700">{item.code}</td>
