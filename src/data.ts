@@ -324,29 +324,5 @@ export const TESTIMONIALS: Testimonial[] = [
     avatarUrl: "/images/graduated_cohort_sierra_leone_original.jpeg",
     imageUrl: "/images/graduated_cohort_sierra_leone_original.jpeg",
     imageFit: "contain"
-  },
-  {
-    id: "sarah",
-    name: "Sarah J.",
-    location: "Chicago, USA",
-    rating: 5,
-    text: "Finally understood the mystery of Being! I tried three different apps and books before joining. In just two weeks, the interactive 'Ser vs Estar' visual boards completely de-coded how to explain my feelings versus my profession. The small groups are incredibly cozy and absolutely safe for beginners.",
-    avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150&h=150"
-  },
-  {
-    id: "marcus",
-    name: "Marcus K.",
-    location: "London, UK",
-    rating: 5,
-    text: "The classroom dynamic here is exceptional. Unlike online course factories, 'Iniciativa Ser o Estar' provides native interaction tailored for native English speakers. The instructors anticipate the exact errors we make. I booked the trial class and was hooked!",
-    avatarUrl: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150&h=150"
-  },
-  {
-    id: "elena",
-    name: "Elena G.",
-    location: "Austin, USA",
-    rating: 5,
-    text: "I went from stuttering basic words to conversing comfortably with the local barista. The visual methodology works perfectly if you are a hands-on or visual learner. Easily the best investment in my Spanish journey!",
-    avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150&h=150"
   }
 ];
