@@ -212,18 +212,6 @@ const getLocalizedTestimonial = (testimonial: Testimonial, lang: "EN" | "ES"): T
       name: "Promoción Graduada",
       location: "Sierra Leona",
       text: "Por fin terminé mi curso de español. 💃 Recomiendo totalmente Iniciativa Ser o Estar a los estudiantes adultos que buscan avances reales en gramática cognitiva y fluidez al hablar."
-    },
-    sarah: {
-      location: "Chicago, EE. UU.",
-      text: "¡Por fin entendí el misterio del verbo ser! Probé tres aplicaciones y libros diferentes antes de inscribirme. En solo dos semanas, los tableros visuales interactivos de «Ser vs. Estar» me ayudaron a comprender cómo explicar mis sentimientos y mi profesión. Los grupos pequeños son muy acogedores y totalmente seguros para principiantes."
-    },
-    marcus: {
-      location: "Londres, Reino Unido",
-      text: "La dinámica de clase es excepcional. A diferencia de las plataformas de cursos en línea, Iniciativa Ser o Estar ofrece interacción con hablantes nativos adaptada a los angloparlantes. Los instructores anticipan exactamente los errores que solemos cometer. Reservé la clase de prueba y me encantó."
-    },
-    elena: {
-      location: "Austin, EE. UU.",
-      text: "Pasé de trabarme con palabras básicas a conversar cómodamente con el camarero de mi cafetería local. La metodología visual funciona perfectamente para quienes aprendemos de forma práctica o visual. Sin duda, ha sido la mejor inversión en mi aprendizaje del español."
     }
   };
 
