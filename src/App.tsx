@@ -2155,7 +2155,7 @@ Spanish:
                       {courseLang === "EN" ? "Expertise / Background:" : "Especialidad / Trayectoria:"}
                     </span>
                     <span className="text-xs text-slate-700 font-medium">
-                      {courseLang === "EN" ? "Bachelor of Education in Foreign Languages from UNIMAK, Local Coordinator." : "Licenciatura en Educación en Lenguas Extranjeras por UNIMAK, Coordinador Local."}
+                      {courseLang === "EN" ? "Bachelor of Education in Foreign Languages." : "Licenciatura en Educación en Lenguas Extranjeras."}
                     </span>
                   </div>
                 </motion.div>
@@ -2292,8 +2292,8 @@ Spanish:
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed text-left">
                     {courseLang === "EN"
-                      ? "Active academic alignment with the University of Makeni. Our partnership supports joint Romance linguistics studies, teacher placement networks, student exchanges, and dual-credit training courses."
-                      : "Mantenemos una colaboración académica activa con la Universidad de Makeni. Nuestra alianza apoya estudios conjuntos de lingüística románica, redes de prácticas docentes, intercambios estudiantiles y cursos formativos con créditos compartidos."}
+                      ? "Active academic alignment with schools and universities. Our partnership supports joint Romance linguistics studies, teacher placement networks, student exchanges, and dual-credit training courses."
+                      : "Mantenemos una colaboración académica activa con escuelas y universidades. Nuestra alianza apoya estudios conjuntos de lingüística románica, redes de prácticas docentes, intercambios estudiantiles y cursos formativos con créditos compartidos."}
                   </p>
                 </motion.div>
               </div>
