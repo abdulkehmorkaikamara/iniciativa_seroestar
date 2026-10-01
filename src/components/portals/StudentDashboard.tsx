@@ -50,14 +50,9 @@ interface StudentDashboardProps {
   lang?: "EN" | "ES";
 }
 
-// Default preloaded mock shared teacher notes
-const INITIAL_SHARED_NOTES = [
-  { id: "note-1", title: "Definición del Ser: Identidad, Origen y Profesiones", courseLevel: "A1", fileType: "PDF", size: "2.4 MB", date: "2026-06-18" },
-  { id: "note-2", title: "Metáforas Cognitivas para Estar: La Brújula de Localización", courseLevel: "A1", fileType: "PDF", size: "1.8 MB", date: "2026-06-19" },
-  { id: "note-3", title: "Pretérito Indefinido vs Imperfecto: Cheat Sheet", courseLevel: "A2", fileType: "DOCX", size: "1.1 MB", date: "2026-06-10" },
-  { id: "note-4", title: "El Modo Subjuntivo: Guía Práctica de Expresión Indirecta", courseLevel: "B1", fileType: "PDF", size: "3.5 MB", date: "2026-06-12" }
-];
-
+// Real, bundled A1 example lesson recording — kept (unlike the shared-notes
+// placeholders removed below) because its video file genuinely exists at
+// public/videos/, matching the README's documented example-video feature.
 const INITIAL_RECORDINGS: any[] = [
   {
     id: "a1-describir-personas-objetos",
@@ -136,12 +131,17 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const t = TRANSLATIONS[lang];
   const d = (en: string, es: string) => lang === "ES" ? es : en;
 
-  // Use dummy fallbacks if not registered during this session
+  // App.tsx only renders this component once a real logged-in session
+  // exists, so registeredStudent is never actually null in practice. This
+  // fallback exists purely so hooks below always have a valid shape to
+  // destructure; it deliberately looks like a placeholder rather than a
+  // real person, so it can never be mistaken for (or silently merge data
+  // with) an actual student if it's ever reached by a future bug.
   const student = registeredStudent || {
-    fullName: "Alex Miller",
-    studentIdCode: "SER-784",
-    email: "alex.miller@gmail.com",
-    phoneNumber: "+34 611 223 344",
+    fullName: "Unknown Student",
+    studentIdCode: "UNKNOWN",
+    email: "",
+    phoneNumber: "",
     courseLevel: "A1",
     classGroup: "Morning Group",
     learningMode: "Online"
@@ -154,33 +154,25 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   // State
   const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>(() => {
     const saved = localStorage.getItem(`notes_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [
-      { id: "p1", title: "My Ser vs Estar Metaphor Tracker", content: "Ser = What somethings is (Identity). Estar = How something is (state/feeling). Exception: Location is ALWAYS Estar even if Madrid stands forever!", date: "2026-06-20" }
-    ];
+    return saved ? JSON.parse(saved) : [];
   });
   const [newNoteTitle, setNewNoteTitle] = useState("");
   const [newNoteContent, setNewNoteContent] = useState("");
   const [personalNotesSearch, setPersonalNotesSearch] = useState("");
 
-  // Interactive Live Teacher Announcements state (polls localStorage)
+  // Interactive Live Teacher Announcements state (polls localStorage).
+  // No fake baseline announcements — those were attributed to real tutor
+  // names with dates that are now months in the past, which would show
+  // every new student stale "news" that never actually happened.
   const [announcements, setAnnouncements] = useState<Array<{ id: string; courseLevel: string; title: string; text: string; date: string; type: string; instructor: string }>>(() => {
     const saved = localStorage.getItem("course_announcements");
-    const baseline = [
-      { id: "ann-init-1", courseLevel: "A1", title: "Visual Metaphor Slide Pack Uploaded!", text: "Please review the new Ser vs Estar cognitive metaphor map in your Materials Locker before Wednesday's live oral drills class.", date: "2026-06-21", type: "important", instructor: TUTOR_PROFILES[0 % TUTOR_PROFILES.length].name },
-      { id: "ann-init-2", courseLevel: "A1", title: "Morning Grammar Drills Schedule change", text: "Wednesday session will begin exactly 15 minutes earlier due to mock certification tests with UNIMAK.", date: "2026-06-22", type: "info", instructor: TUTOR_PROFILES[1 % TUTOR_PROFILES.length].name },
-      { id: "ann-init-3", courseLevel: "A2", title: "Quiz 3 Deadline Rescheduled", text: "The Elementary past tenses homework has been shifted to Friday night. Practice the difference between indefinido and imperfecto.", date: "2026-06-21", type: "info", instructor: TUTOR_PROFILES[2 % TUTOR_PROFILES.length].name },
-      { id: "ann-init-4", courseLevel: "B1", title: "Subjunctive Essay Prompt released", text: "Submit your final essays in the assignments tab directly. 500 words on Spain's local cultural metaphors.", date: "2026-06-22", type: "success", instructor: TUTOR_PROFILES[3 % TUTOR_PROFILES.length].name }
-    ];
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        // Combine baseline and saved
-        return [...parsed, ...baseline.filter(b => !parsed.some((p: any) => p.id === b.id))];
-      } catch (err) {
-        return baseline;
-      }
+    if (!saved) return [];
+    try {
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
     }
-    return baseline;
   });
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
     try {
@@ -201,27 +193,20 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     }
   });
 
-  // Direct Student Grades Tracker
+  // Direct Student Grades Tracker — no fake default grades. A brand new
+  // student has not taken any exam yet, so an empty list here is the
+  // honest state; the previous hardcoded "94/100" etc. would otherwise
+  // show up for every new student as if they'd already been graded.
   const [gradesList, setGradesList] = useState<Array<{ id: string; subject: string; score: string; weight: string; date: string; remarks: string }>>(() => {
     const saved = localStorage.getItem(`grades_${student.studentIdCode}`);
-    const defaultGrades = [
-      { id: "g1", subject: "Oral Drill Fluency Exam (Ser o Estar)", score: "94/100", weight: "20%", date: "2026-06-15", remarks: "Great metaphorical application. Fluid speech patterns." },
-      { id: "g2", subject: "Weekly Grammar Assessment (Present Indicator)", score: "88/100", weight: "15%", date: "2026-06-18", remarks: "Solid conjugation! Watch out for irregular first-person roots like 'Tengo' or 'Oigo'." },
-      { id: "g3", subject: "Active Classroom Participation Audit", score: "98/100", weight: "10%", date: "2026-06-20", remarks: "Phenomenal questions and peer collaboration during Jitsi breakouts." },
-      { id: "g4", subject: "Prueba: Cultural Idioms & Dialects", score: "Pending Review", weight: "15%", date: "2026-06-22", remarks: "Instructor's grading board is actively reviewing." }
-    ];
-    return saved ? JSON.parse(saved) : defaultGrades;
+    return saved ? JSON.parse(saved) : [];
   });
 
-  // Assignments submitted & pending
+  // Assignments submitted & pending — same reasoning: no fake assignments
+  // with deadlines that have already passed for every new student.
   const [assignments, setAssignments] = useState<Array<{ id: string; title: string; deadline: string; status: "Submitted" | "Not Submitted" | "Graded"; score: string; uploadedFile?: string; dateSubmitted?: string }>>(() => {
     const saved = localStorage.getItem(`assignments_${student.studentIdCode}`);
-    const defaultAssignments = [
-      { id: "asg-1", title: "Cognitive Concept Map: Ser (Who) vs Estar (How)", deadline: "2026-06-25", status: "Not Submitted", score: "TBD" },
-      { id: "asg-2", title: "Oral Diary Recording: My Local Environment Description", deadline: "2026-06-29", status: "Not Submitted", score: "TBD" },
-      { id: "asg-3", title: "Translation Clinic Exercises: Emotional Subjunctive Conjugations", deadline: "2026-07-04", status: "Not Submitted", score: "TBD" }
-    ];
-    return saved ? JSON.parse(saved) : defaultAssignments;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Direct Tutor Correspondences Mailbox
@@ -241,10 +226,9 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [emailBody, setEmailBody] = useState("");
   const [emailSuccess, setEmailSuccess] = useState(false);
 
-  // File Upload State Simulation for Materials locker
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; type: string; size: string; date: string }>>([
-    { name: "Syllabus_A1_Ser_o_Estar.pdf", type: "PDF", size: "1.4 MB", date: "2026-06-21" }
-  ]);
+  // File Upload State Simulation for Materials locker — no fake starter
+  // file; a brand new student has not uploaded anything yet.
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; type: string; size: string; date: string }>>([]);
   const [dragging, setDragging] = useState(false);
 
   // Live class and catalog states loaded from the backend
@@ -252,7 +236,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [insideClassRoom, setInsideClassRoom] = useState(false);
   const [liveSessions, setLiveSessions] = useState<any[]>([]);
   const [recordings, setRecordings] = useState(INITIAL_RECORDINGS);
-  const [sharedNotes, setSharedNotes] = useState<any[]>(INITIAL_SHARED_NOTES);
+  const [sharedNotes, setSharedNotes] = useState<any[]>([]);
   const [courseCatalog, setCourseCatalog] = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<Array<{ id: string; sender: string; role: string; text: string; time: string }>>([]);
   const [chatSocket, setChatSocket] = useState<WebSocket | null>(null);
@@ -344,11 +328,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     fetch(`/api/lesson-notes?course_level=${encodeURIComponent(student.courseLevel)}`)
       .then((res) => res.ok ? res.json() : [])
       .then((data) => {
-        if (!Array.isArray(data) || data.length === 0) return;
-        setSharedNotes([
-          ...data,
-          ...INITIAL_SHARED_NOTES.filter((seeded) => !data.some((note: any) => note.id === seeded.id))
-        ]);
+        if (Array.isArray(data)) setSharedNotes(data);
       })
       .catch(() => {});
 
@@ -658,6 +638,12 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
       announcement.courseLevel === student.courseLevel &&
       !deletedAnnouncementIds.includes(announcement.id)
   );
+
+  const visibleSharedNotes = sharedNotes.filter((note: any) => {
+    const studentLevel = student.courseLevel?.match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
+    const noteLevel = note.course_level || note.courseLevel;
+    return noteLevel === "All" || !studentLevel || noteLevel === studentLevel;
+  });
 
   const updateLessonProgress = async (lessonId: number, percentWatched: number, lastPositionSeconds: number, completed: boolean) => {
     await fetch(`/api/lessons/${lessonId}/progress?student_id_code=${encodeURIComponent(student.studentIdCode)}`, {
@@ -1263,12 +1249,12 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               </div>
 
               <div className="space-y-2.5 max-h-[300px] overflow-y-auto w-full">
-                {sharedNotes
-                  .filter((note: any) => {
-                    const studentLevel = student.courseLevel?.match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
-                    const noteLevel = note.course_level || note.courseLevel;
-                    return noteLevel === "All" || !studentLevel || noteLevel === studentLevel;
-                  })
+                {visibleSharedNotes.length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-400 font-semibold">
+                    {d("No shared materials yet. They'll show up here once your instructor uploads one.", "Aún no hay materiales compartidos. Aparecerán aquí cuando tu instructor suba uno.")}
+                  </div>
+                )}
+                {visibleSharedNotes
                   .map((note: any) => {
                     const level = note.course_level || note.courseLevel;
                     const size = note.file_size || note.size;
@@ -1429,6 +1415,11 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{d("Cumulative Assessments", "Evaluaciones Acumulativas")}</div>
               
               <div className="divide-y divide-slate-100 bg-slate-50 border border-slate-200 rounded-2xl overflow-hidden">
+                {gradesList.length === 0 && (
+                  <div className="p-6 text-center text-xs text-slate-400 font-semibold">
+                    {d("No grades yet. They'll show up here once your instructor records one.", "Aún no hay calificaciones. Aparecerán aquí cuando tu instructor registre una.")}
+                  </div>
+                )}
                 {gradesList.map((grade) => (
                   <div key={grade.id} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:bg-slate-100/50">
                     <div className="space-y-1 text-left">
@@ -1478,6 +1469,11 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               )}
 
               {/* Upload Form */}
+              {assignments.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-400 font-semibold bg-slate-50 border border-slate-200 rounded-2xl">
+                  {d("No assignments yet. They'll show up here once your instructor publishes one.", "Aún no hay tareas. Aparecerán aquí cuando tu instructor publique una.")}
+                </div>
+              ) : (
               <form onSubmit={handleAddAssignmentSubmission} className="space-y-4 w-full">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{d("Target Assignment", "Tarea Objetivo")}</label>
@@ -1499,7 +1495,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   <input
                     type="text"
                     required
-                    placeholder="e.g. abdul_kamara_ser_metaphor.pdf"
+                    placeholder={d("e.g. ser_metaphor_essay.pdf", "ej. ensayo_metafora_ser.pdf")}
                     value={homeworkFileMockName}
                     onChange={(e) => setHomeworkFileMockName(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
@@ -1520,12 +1516,14 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   <span>{d("Transmit Homework File", "Transmitir Archivo de Tarea")}</span>
                 </button>
               </form>
+              )}
             </div>
 
             {/* Assignments checklists */}
+            {assignments.length > 0 && (
             <div className="space-y-3 pt-6 border-t border-slate-100 mt-6 text-left w-full">
               <span className="text-[10px] font-bold text-slate-405 text-slate-400 uppercase tracking-wider block">{d("Timeline Checklist", "Lista de Control Cronológica")}</span>
-              
+
               <div className="space-y-2.5 w-full">
                 {assignments.map((asg) => (
                   <div key={asg.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] flex justify-between items-center text-left">
@@ -1547,6 +1545,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                 ))}
               </div>
             </div>
+            )}
           </div>
         </div>
       )}
