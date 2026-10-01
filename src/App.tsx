@@ -1893,7 +1893,7 @@ Spanish:
                 <img
                   src="/images/founder_viviana.jpeg"
                   alt="Viviana"
-                  className="w-28 h-28 rounded-full object-cover shadow-md shrink-0"
+                  className="w-28 h-28 rounded-full object-cover object-top shadow-md shrink-0"
                 />
                 <h4 className="font-sans font-black text-slate-900 text-lg leading-tight">
                   Viviana
@@ -2054,7 +2054,7 @@ Spanish:
                       <img
                         src="/images/team_xiomara.jpg"
                         alt="Xiomara"
-                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                        className="w-14 h-14 rounded-2xl object-cover object-top shadow-md shrink-0"
                       />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
@@ -2093,7 +2093,7 @@ Spanish:
                       <img
                         src="/images/team_ivoneth.jpg"
                         alt="Ivoneth"
-                        className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
+                        className="w-14 h-14 rounded-2xl object-cover object-top shadow-md shrink-0"
                       />
                       <div>
                         <h4 className="font-sans font-black text-slate-900 text-base leading-tight">
