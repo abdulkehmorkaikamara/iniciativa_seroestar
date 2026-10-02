@@ -321,6 +321,85 @@ export default function AdminDashboard({
   const [migrationPreviewCount, setMigrationPreviewCount] = useState<number | null>(null);
   const [migrationResult, setMigrationResult] = useState<any | null>(null);
   const [migrating, setMigrating] = useState(false);
+
+  // Students' @iseroestar.com Google accounts
+  type GoogleAccountStatus = {
+    enabled: boolean;
+    missing_settings: string[];
+    domain: string;
+    students: Array<{ student_id_code: string; full_name: string; course_level: string; workspace_email: string | null }>;
+  };
+  type CreatedGoogleAccount = { student_id_code: string; full_name: string; email: string; temporary_password: string };
+  const [googleStatus, setGoogleStatus] = useState<GoogleAccountStatus | null>(null);
+  const [googleError, setGoogleError] = useState<string | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleCreated, setGoogleCreated] = useState<CreatedGoogleAccount[]>([]);
+  const [googleFailed, setGoogleFailed] = useState<Array<{ student_id_code: string; full_name: string; detail: string }>>([]);
+
+  const loadGoogleAccounts = () => {
+    setGoogleError(null);
+    fetch("/api/admin/google-accounts", { headers: adminHeaders })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `google-accounts ${res.status}`);
+        setGoogleStatus(data);
+      })
+      .catch((err) => setGoogleError(err?.message || String(err)));
+  };
+
+  useEffect(() => {
+    loadGoogleAccounts();
+  }, []);
+
+  const googleMissingCount = googleStatus ? googleStatus.students.filter((s) => !s.workspace_email).length : 0;
+
+  const handleCreateGoogleAccounts = async () => {
+    if (!googleStatus || googleMissingCount === 0) return;
+    const confirmed = window.confirm(d(
+      `Create ${googleMissingCount} Google account(s) on ${googleStatus.domain}? Each account is a Google Workspace licence.`,
+      `¿Crear ${googleMissingCount} cuenta(s) de Google en ${googleStatus.domain}? Cada cuenta es una licencia de Google Workspace.`
+    ));
+    if (!confirmed) return;
+
+    setGoogleBusy(true);
+    setGoogleError(null);
+    const created: CreatedGoogleAccount[] = [];
+    const failed: Array<{ student_id_code: string; full_name: string; detail: string }> = [];
+    try {
+      // Small batches keep each request inside the serverless time limit.
+      for (let round = 0; round < 20; round++) {
+        const res = await fetch("/api/admin/google-accounts", {
+          method: "POST",
+          headers: adminJsonHeaders,
+          body: JSON.stringify({ limit: 15, exclude_student_id_codes: failed.map((f) => f.student_id_code) })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `google-accounts ${res.status}`);
+        created.push(...(data.created || []));
+        failed.push(...(data.failed || []));
+        setGoogleCreated([...created]);
+        setGoogleFailed([...failed]);
+        if (!data.remaining || ((data.created || []).length === 0 && (data.failed || []).length === 0)) break;
+      }
+    } catch (err: any) {
+      setGoogleError(err?.message || String(err));
+    } finally {
+      setGoogleBusy(false);
+      loadGoogleAccounts();
+    }
+  };
+
+  const downloadGoogleAccountsCsv = () => {
+    const escape = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+    const rows = googleCreated.map((a) => [a.full_name, a.student_id_code, a.email, a.temporary_password].map(escape).join(","));
+    const csv = ["Name,Student code,Email,Temporary password", ...rows].join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "student_google_accounts.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
   const [teacherProgress, setTeacherProgress] = useState<any[]>([]);
   const [peopleStudents, setPeopleStudents] = useState<any[]>([]);
   const [peopleTeachers, setPeopleTeachers] = useState<any[]>([]);
@@ -1153,6 +1232,105 @@ export default function AdminDashboard({
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Students' Google Workspace accounts */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6">
+        <div className="pb-3 border-b border-slate-100 mb-4 flex flex-wrap justify-between items-center gap-2">
+          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Student Google Accounts", "Cuentas de Google de Estudiantes")}</h3>
+          {googleStatus?.enabled && googleStatus.missing_settings.length === 0 && (
+            <span className="text-[10px] font-bold text-slate-500">
+              {d(
+                `${googleStatus.students.length - googleMissingCount} of ${googleStatus.students.length} active students have an @${googleStatus.domain} account`,
+                `${googleStatus.students.length - googleMissingCount} de ${googleStatus.students.length} estudiantes activos tienen cuenta @${googleStatus.domain}`
+              )}
+            </span>
+          )}
+        </div>
+
+        <div className="space-y-3 text-xs">
+          {googleError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 text-rose-700 px-3 py-2 font-semibold">{googleError}</p>}
+
+          {googleStatus && !googleStatus.enabled && (
+            <p className="text-slate-600">
+              {d(
+                "Creating Google accounts is switched off. Set GOOGLE_PROVISION_STUDENTS=true on Vercel once the Google for Nonprofits plan is active, because every account is a Workspace licence.",
+                "La creación de cuentas de Google está desactivada. Activa GOOGLE_PROVISION_STUDENTS=true en Vercel cuando el plan de Google para Organizaciones sin Fines de Lucro esté activo, porque cada cuenta es una licencia de Workspace."
+              )}
+            </p>
+          )}
+
+          {googleStatus?.enabled && googleStatus.missing_settings.length > 0 && (
+            <p className="text-slate-600">
+              {d("Google Workspace is not fully configured. Missing on Vercel: ", "Google Workspace no está configurado del todo. Falta en Vercel: ")}
+              <span className="font-mono font-bold">{googleStatus.missing_settings.join(", ")}</span>
+            </p>
+          )}
+
+          {googleStatus?.enabled && googleStatus.missing_settings.length === 0 && (
+            <>
+              <div className="max-h-[220px] overflow-y-auto border border-slate-100 rounded-xl">
+                <table className="w-full text-left">
+                  <tbody>
+                    {googleStatus.students.map((s) => (
+                      <tr key={s.student_id_code} className="border-b border-slate-100 last:border-0">
+                        <td className="px-3 py-1.5 font-semibold text-slate-800">{s.full_name}</td>
+                        <td className="px-3 py-1.5 font-mono text-slate-400">{s.student_id_code}</td>
+                        <td className="px-3 py-1.5 font-mono">
+                          {s.workspace_email ? <span className="text-emerald-700">{s.workspace_email}</span> : <span className="text-amber-700">{d("No account yet", "Sin cuenta aún")}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateGoogleAccounts}
+                disabled={googleBusy || googleMissingCount === 0}
+                className="py-2 px-3 rounded-xl font-bold text-sm bg-emerald-600 hover:bg-emerald-500 text-white disabled:bg-slate-100 disabled:text-slate-400 transition cursor-pointer"
+              >
+                {googleBusy
+                  ? d(`Creating... (${googleCreated.length} done)`, `Creando... (${googleCreated.length} listas)`)
+                  : d(`Create missing accounts (${googleMissingCount})`, `Crear cuentas faltantes (${googleMissingCount})`)}
+              </button>
+            </>
+          )}
+
+          {googleCreated.length > 0 && (
+            <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="font-semibold text-amber-900">
+                {d(
+                  "Temporary passwords are shown only now. Download them and give each student their own; they must choose a new password at first sign-in.",
+                  "Las contraseñas temporales solo se muestran ahora. Descárgalas y entrega a cada estudiante la suya; deberán elegir una nueva al iniciar sesión por primera vez."
+                )}
+              </p>
+              <button type="button" onClick={downloadGoogleAccountsCsv} className="py-1.5 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold transition cursor-pointer">
+                {d("Download CSV", "Descargar CSV")}
+              </button>
+              <table className="w-full text-left">
+                <tbody>
+                  {googleCreated.map((a) => (
+                    <tr key={a.student_id_code} className="border-b border-amber-100 last:border-0">
+                      <td className="py-1 pr-3 text-slate-800">{a.full_name}</td>
+                      <td className="py-1 pr-3 font-mono text-slate-700">{a.email}</td>
+                      <td className="py-1 font-mono text-slate-900">{a.temporary_password}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {googleFailed.length > 0 && (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 space-y-1">
+              <p className="font-semibold text-rose-800">{d("These accounts could not be created:", "No se pudieron crear estas cuentas:")}</p>
+              {googleFailed.map((f) => (
+                <p key={f.student_id_code} className="text-rose-700">{f.full_name} ({f.student_id_code}): {f.detail}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, database_description
 from . import models, schemas, auth, roles, seed
 from .live_utils import build_room_details
-from . import meet
+from . import meet, google_accounts, google_workspace
 from .storage import store_upload
 from .tutors import TUTOR_PROFILES, find_tutor_by_email, find_tutor_by_name
 
@@ -768,6 +768,89 @@ def list_admin_students(request: Request, db: Session = Depends(get_db)):
 def create_admin_student(payload: schemas.AdminStudentCreate, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
     return _create_student_account(payload, db, status_value=payload.status)
+
+
+def _active_students(db: Session) -> list[models.StudentProfile]:
+    return db.query(models.StudentProfile).filter(models.StudentProfile.status == "Active").order_by(models.StudentProfile.id).all()
+
+
+def _require_google_provisioning():
+    if not google_accounts.provisioning_enabled():
+        raise HTTPException(status_code=400, detail="Creating Google accounts is switched off (GOOGLE_PROVISION_STUDENTS).")
+    missing = google_accounts.missing_settings()
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Google Workspace is not fully configured: {', '.join(missing)}.")
+
+
+@app.get("/api/admin/google-accounts")
+def list_google_accounts(request: Request, db: Session = Depends(get_db)):
+    """Active students and the @workspace address each one has, if any."""
+    _require_admin(request)
+    enabled = google_accounts.provisioning_enabled()
+    missing = google_accounts.missing_settings()
+    by_code: dict[str, str] = {}
+    if enabled and not missing:
+        try:
+            by_code, _taken = google_accounts.existing_student_accounts(google_accounts.admin_token())
+        except google_workspace.GoogleApiError as exc:
+            raise HTTPException(status_code=502, detail=f"Google Workspace: {exc}") from exc
+    return {
+        "enabled": enabled,
+        "missing_settings": missing,
+        "domain": google_workspace.workspace_domain(),
+        "students": [
+            {
+                "student_id_code": student.student_id_code,
+                "full_name": student.user.full_name if student.user else student.student_id_code,
+                "course_level": student.course_level,
+                "workspace_email": by_code.get(student.student_id_code),
+            }
+            for student in _active_students(db)
+        ],
+    }
+
+
+@app.post("/api/admin/google-accounts")
+def provision_google_accounts(payload: schemas.GoogleAccountProvisionRequest, request: Request, db: Session = Depends(get_db)):
+    """Create @workspace accounts for active students who have none, a batch at a time.
+
+    Temporary passwords are only ever returned here, once; Google makes the
+    student change it at first sign-in.
+    """
+    _require_admin(request)
+    _require_google_provisioning()
+    limit = max(1, min(payload.limit, 25))  # stay well inside the serverless time limit
+    wanted = set(payload.student_id_codes or [])
+    excluded = set(payload.exclude_student_id_codes or [])
+    try:
+        token = google_accounts.admin_token()
+        by_code, taken = google_accounts.existing_student_accounts(token)
+    except google_workspace.GoogleApiError as exc:
+        raise HTTPException(status_code=502, detail=f"Google Workspace: {exc}") from exc
+
+    pending = [
+        student for student in _active_students(db)
+        if student.student_id_code not in by_code
+        and student.student_id_code not in excluded
+        and (not wanted or student.student_id_code in wanted)
+    ]
+    created, failed = [], []
+    for student in pending[:limit]:
+        full_name = student.user.full_name if student.user else ""
+        try:
+            address, password = google_accounts.create_student_account(
+                token, full_name, student.student_id_code, student.user.email if student.user else "", taken,
+            )
+        except google_workspace.GoogleApiError as exc:
+            failed.append({"student_id_code": student.student_id_code, "full_name": full_name, "detail": str(exc)})
+            continue
+        created.append({
+            "student_id_code": student.student_id_code,
+            "full_name": full_name,
+            "email": address,
+            "temporary_password": password,
+        })
+    return {"created": created, "failed": failed, "remaining": max(len(pending) - len(created) - len(failed), 0)}
 
 
 @app.get("/api/admin/teachers")
