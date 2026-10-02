@@ -233,7 +233,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [dragging, setDragging] = useState(false);
 
   // Live class and catalog states loaded from the backend
-  const [activeSession, setActiveSession] = useState<{ id: string; title: string; teacher: string; startTime: string; isLive: boolean; roomUrl?: string; joinToken?: string } | null>(null);
+  const [activeSession, setActiveSession] = useState<{ id: string; title: string; teacher: string; startTime: string; isLive: boolean; roomUrl?: string; joinToken?: string; provider?: string } | null>(null);
   const [insideClassRoom, setInsideClassRoom] = useState(false);
   const [liveSessions, setLiveSessions] = useState<any[]>([]);
   const [recordings, setRecordings] = useState(INITIAL_RECORDINGS);
@@ -311,7 +311,8 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
             startTime: upcoming.date_time,
             isLive: upcoming.status === "Live",
             roomUrl: current?.id === upcoming.id ? current.roomUrl : undefined,
-            joinToken: current?.id === upcoming.id ? current.joinToken : undefined
+            joinToken: current?.id === upcoming.id ? current.joinToken : undefined,
+            provider: current?.id === upcoming.id ? current.provider : undefined
           }));
         })
         .catch(() => {});
@@ -534,7 +535,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
       return;
     }
 
-    setActiveSession(prev => prev ? { ...prev, roomUrl: joinPayload.room_url, joinToken: joinPayload.join_token } : prev);
+    setActiveSession(prev => prev ? { ...prev, roomUrl: joinPayload.room_url, joinToken: joinPayload.join_token, provider: joinPayload.provider } : prev);
     setInsideClassRoom(true);
   };
 
@@ -836,7 +837,32 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
 
                 {/* Classroom feed video */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-4">
-                  {activeSession?.roomUrl && activeSession?.joinToken ? (
+                  {activeSession?.provider === "meet" && activeSession?.roomUrl ? (
+                    <div className="space-y-4 max-w-sm">
+                      <div className="w-16 h-16 mx-auto rounded-full bg-teal-500/15 flex items-center justify-center border border-teal-500/40">
+                        <Video size={32} className="text-teal-400" />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="font-heading font-black text-lg sm:text-xl text-teal-300">{d("This class is in Google Meet", "Esta clase es en Google Meet")}</span>
+                        <p className="text-xs text-slate-400 leading-relaxed">
+                          {d(
+                            "Open Meet to see and hear your tutor. Sign in with your iseroestar.com account to go straight in. Keep this page open for the class chat.",
+                            "Abre Meet para ver y escuchar a tu tutor. Inicia sesión con tu cuenta de iseroestar.com para entrar directamente. Mantén esta página abierta para el chat."
+                          )}
+                        </p>
+                      </div>
+                      <a
+                        href={activeSession.roomUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={recordVideoJoinAttendance}
+                        className="inline-flex items-center px-5 py-2.5 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition"
+                      >
+                        <Video size={14} className="mr-1.5" />
+                        {d("Open Google Meet", "Abrir Google Meet")}
+                      </a>
+                    </div>
+                  ) : activeSession?.roomUrl && activeSession?.joinToken ? (
                     <LiveVideoRoom
                       roomUrl={activeSession.roomUrl}
                       token={activeSession.joinToken}

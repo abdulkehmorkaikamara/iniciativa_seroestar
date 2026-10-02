@@ -97,6 +97,18 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [newLevel, setNewLevel] = useState("A1");
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
+  const [newMeetLink, setNewMeetLink] = useState("");
+  // Which video provider the backend runs classes on (Daily or Google Meet).
+  const [liveConfig, setLiveConfig] = useState<{ provider: string; meet_auto_create: boolean }>({ provider: "daily", meet_auto_create: false });
+  const usesMeet = liveConfig.provider === "meet";
+  const needsMeetLink = usesMeet && !liveConfig.meet_auto_create;
+
+  useEffect(() => {
+    fetch("/api/live-config")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => { if (data) setLiveConfig(data); })
+      .catch(() => {});
+  }, []);
   const [scheduleStatus, setScheduleStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   // Classes are stored in GMT; tutors outside Sierra Leone see what that means for them.
   const localTimeHint = (() => {
@@ -166,7 +178,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   };
 
   // Create a class record; shared by scheduling and "Start class now".
-  const createClass = async (title: string, level: string, dateTime: string) => {
+  const createClass = async (title: string, level: string, dateTime: string, meetingLink?: string) => {
     const response = await fetch("/api/live-sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -174,7 +186,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
         title,
         course_level: level,
         teacher_name: teacherName,
-        date_time: dateTime
+        date_time: dateTime,
+        meeting_link: meetingLink || null
       })
     });
 
@@ -209,9 +222,13 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       });
       return;
     }
+    if (needsMeetLink && !newMeetLink.trim()) {
+      setScheduleStatus({ type: "error", message: d("Paste the Google Meet link for this class.", "Pega el enlace de Google Meet de esta clase.") });
+      return;
+    }
 
     try {
-      const created = await createClass(newTitle, newLevel, `${newDate} ${newTime}`);
+      const created = await createClass(newTitle, newLevel, `${newDate} ${newTime}`, newMeetLink.trim());
       setScheduleStatus({
         type: "success",
         message: d(`${created.title} was scheduled for ${created.level}.`, `${created.title} se programó para el nivel ${created.level}.`)
@@ -219,6 +236,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       setNewTitle("");
       setNewDate("");
       setNewTime("");
+      setNewMeetLink("");
     } catch (error: any) {
       setScheduleStatus({
         type: "error",
@@ -235,7 +253,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       if (!response.ok) {
         throw new Error(payload.detail || d("The live classroom could not start.", "No se pudo iniciar el aula en vivo."));
       }
-      setCurrentActiveRoom({ ...cls, roomUrl: payload.room_url, joinToken: payload.join_token });
+      setCurrentActiveRoom({ ...cls, roomUrl: payload.room_url, joinToken: payload.join_token, provider: payload.provider });
       setScheduledClasses(prev => prev.map(c => c.id === cls.id ? { ...c, status: "Live" } : c));
       setProgressRefreshKey(prev => prev + 1);
     } catch (error: any) {
@@ -247,13 +265,18 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [startingNow, setStartingNow] = useState(false);
   const handleStartClassNow = async () => {
     if (startingNow || currentActiveRoom) return;
-    setStartingNow(true);
     setScheduleStatus(null);
+    if (needsMeetLink && !newMeetLink.trim()) {
+      setScheduleStatus({ type: "error", message: d("Paste the Google Meet link for this class first.", "Primero pega el enlace de Google Meet de esta clase.") });
+      return;
+    }
+    setStartingNow(true);
     try {
       const nowGmt = new Date().toISOString().slice(0, 16).replace("T", " ");
       const title = newTitle.trim() || d(`${newLevel} live class`, `Clase en vivo ${newLevel}`);
-      const created = await createClass(title, newLevel, nowGmt);
+      const created = await createClass(title, newLevel, nowGmt, newMeetLink.trim());
       setNewTitle("");
+      setNewMeetLink("");
       await handleLaunchClass(created);
     } catch (error: any) {
       setScheduleStatus({
@@ -499,7 +522,31 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
             {/* Embedded live room view */}
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-4">
-              {currentActiveRoom.roomUrl ? (
+              {currentActiveRoom.provider === "meet" && currentActiveRoom.roomUrl ? (
+                <div className="space-y-4 max-w-sm">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/10 flex items-center justify-center border border-emerald-500/40">
+                    <Video size={30} className="text-emerald-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="font-heading font-black text-lg text-emerald-300">{d("Your class runs in Google Meet", "Tu clase se realiza en Google Meet")}</span>
+                    <p className="text-xs text-slate-400">
+                      {d(
+                        `Students of the ${currentActiveRoom.level} level can join now. Keep this page open for the class chat, and press End Session here when you finish.`,
+                        `Los estudiantes del nivel ${currentActiveRoom.level} ya pueden entrar. Mantén esta página abierta para el chat y pulsa Terminar Sesión aquí al acabar.`
+                      )}
+                    </p>
+                  </div>
+                  <a
+                    href={currentActiveRoom.roomUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition"
+                  >
+                    <Video size={14} className="mr-1.5" />
+                    {d("Open Google Meet", "Abrir Google Meet")}
+                  </a>
+                </div>
+              ) : currentActiveRoom.roomUrl ? (
                 <LiveVideoRoom
                   roomUrl={currentActiveRoom.roomUrl}
                   token={currentActiveRoom.joinToken}
@@ -622,7 +669,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
               <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
                 <p className="text-[11px] text-emerald-900 font-semibold leading-snug">
-                  {d(`Start a ${newLevel} class right away. It uses the title below if you've typed one.`, `Inicia una clase de ${newLevel} ahora mismo. Usa el título de abajo si escribiste uno.`)}
+                  {needsMeetLink
+                    ? d(`Start a ${newLevel} class right away. Paste its Google Meet link below first; the title is optional.`, `Inicia una clase de ${newLevel} ahora mismo. Primero pega abajo su enlace de Google Meet; el título es opcional.`)
+                    : d(`Start a ${newLevel} class right away. It uses the title below if you've typed one.`, `Inicia una clase de ${newLevel} ahora mismo. Usa el título de abajo si escribiste uno.`)}
                 </p>
                 <button
                   type="button"
@@ -723,6 +772,20 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                   <span>{d("Schedule", "Programar")}</span>
                 </button>
               </div>
+              {usesMeet && (
+                <div className="sm:col-span-6">
+                  <input
+                    type="url"
+                    required={needsMeetLink}
+                    placeholder={liveConfig.meet_auto_create
+                      ? d("Google Meet link (optional, one is created automatically)", "Enlace de Google Meet (opcional, se crea automáticamente)")
+                      : d("Google Meet link (e.g. https://meet.google.com/abc-defg-hij)", "Enlace de Google Meet (ej. https://meet.google.com/abc-defg-hij)")}
+                    value={newMeetLink}
+                    onChange={(e) => setNewMeetLink(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.8 text-xs focus:outline-hidden"
+                  />
+                </div>
+              )}
               <span className="sm:col-span-6 text-[9px] text-slate-400 font-semibold -mt-1">
                 {d("Times are in Sierra Leone Time (GMT).", "Los horarios están en horario de Sierra Leona (GMT).")}
                 {localTimeHint && ` ${d(`That is ${localTimeHint} your local time.`, `Equivale a las ${localTimeHint} en tu hora local.`)}`}
