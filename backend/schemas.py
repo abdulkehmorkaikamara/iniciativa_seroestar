@@ -84,6 +84,12 @@ class AttendanceJoinRequest(BaseModel):
     student_id_code: str
     session_id: int
 
+class GoogleAccountProvisionRequest(BaseModel):
+    student_id_codes: Optional[List[str]] = None
+    # Codes that already failed in this run, so later batches move on.
+    exclude_student_id_codes: Optional[List[str]] = None
+    limit: int = 15
+
 class LiveSessionMeetingLinkUpdate(BaseModel):
     meeting_link: str
 
