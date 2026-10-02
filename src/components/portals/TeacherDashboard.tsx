@@ -288,6 +288,44 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     }
   };
 
+  // Attach or change the Meet link of an already-scheduled class.
+  const [editingLinkId, setEditingLinkId] = useState<number | null>(null);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [savingLink, setSavingLink] = useState(false);
+
+  const startEditingLink = (cls: any) => {
+    setEditingLinkId(cls.id);
+    setLinkDraft(cls.link || "");
+    setLinkError(null);
+  };
+
+  const handleSaveMeetLink = async (cls: any) => {
+    if (!linkDraft.trim()) {
+      setLinkError(d("Paste the Google Meet link first.", "Primero pega el enlace de Google Meet."));
+      return;
+    }
+    setSavingLink(true);
+    setLinkError(null);
+    try {
+      const response = await fetch(`/api/live-sessions/${cls.id}/meeting-link`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meeting_link: linkDraft.trim() })
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.detail || d("The Meet link could not be saved.", "No se pudo guardar el enlace de Meet."));
+      }
+      setScheduledClasses(prev => prev.map(c => c.id === cls.id ? { ...c, link: payload.meeting_link } : c));
+      setEditingLinkId(null);
+    } catch (error: any) {
+      setLinkError(error?.message || d("The Meet link could not be saved.", "No se pudo guardar el enlace de Meet."));
+    } finally {
+      setSavingLink(false);
+    }
+  };
+
   // End live class
   const handleEndClass = async () => {
     if (!currentActiveRoom) return;
@@ -696,6 +734,22 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                         <span className="text-[10px] font-mono text-slate-400">{cls.date} GMT</span>
                       </div>
                       <h4 className="font-bold text-xs text-slate-800">{cls.title}</h4>
+                      {usesMeet && cls.status !== "Completed" && cls.status !== "Teacher Absent" && editingLinkId !== cls.id && (
+                        <div className="flex items-center gap-2 text-[10px] font-semibold pt-0.5">
+                          {cls.link ? (
+                            <span className="text-emerald-700">{d("Meet link added", "Enlace de Meet añadido")}</span>
+                          ) : (
+                            <span className="text-amber-700">{d("No Meet link yet", "Aún sin enlace de Meet")}</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => startEditingLink(cls)}
+                            className="text-teal-700 hover:text-teal-600 underline cursor-pointer"
+                          >
+                            {cls.link ? d("Change link", "Cambiar enlace") : d("Add Meet link", "Añadir enlace de Meet")}
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex space-x-2 shrink-0">
@@ -707,13 +761,46 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                         </span>
                       ) : (
                         <button
-                          onClick={() => handleLaunchClass(cls)}
+                          onClick={() => (needsMeetLink && !cls.link ? startEditingLink(cls) : handleLaunchClass(cls))}
                           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-sans text-xs font-bold rounded-xl shadow-xs transition cursor-pointer"
                         >
                           {d("Start HD Livestream", "Iniciar Transmisión HD")}
                         </button>
                       )}
                     </div>
+
+                    {editingLinkId === cls.id && (
+                      <div className="w-full space-y-1.5">
+                        <div className="flex gap-2">
+                          <input
+                            type="url"
+                            autoFocus
+                            aria-label={d("Google Meet link", "Enlace de Google Meet")}
+                            placeholder="https://meet.google.com/abc-defg-hij"
+                            value={linkDraft}
+                            onChange={(e) => setLinkDraft(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSaveMeetLink(cls); } }}
+                            className="flex-1 min-w-0 bg-white border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveMeetLink(cls)}
+                            disabled={savingLink}
+                            className="px-3 py-1.5 bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition cursor-pointer shrink-0"
+                          >
+                            {savingLink ? d("Saving...", "Guardando...") : d("Save", "Guardar")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingLinkId(null)}
+                            className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer shrink-0"
+                          >
+                            {d("Cancel", "Cancelar")}
+                          </button>
+                        </div>
+                        {linkError && <p role="alert" className="text-[10px] font-semibold text-rose-600">{linkError}</p>}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
