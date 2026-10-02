@@ -5,7 +5,9 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -14,14 +16,20 @@ STUDENT = ("student@seroestar.com", "SeroEstar-Student-2026!")
 DEVELOPER = ("developer@seroestar.com", "SeroEstar-Dev-2026!")
 
 
-class LiveSessionAccessTests(unittest.TestCase):
+class _LiveSessionTestCase(unittest.TestCase):
+    env_overrides: dict = {}
+
     def setUp(self):
         self._saved_env = dict(os.environ)
         self._data_dir = tempfile.TemporaryDirectory()
         os.environ["BACKEND_DATA_DIR"] = self._data_dir.name
         os.environ["ENVIRONMENT"] = "development"
-        for key in ("DATABASE_URL", "JWT_SECRET", "DAILY_API_KEY", "SEED_RESET_PASSWORDS", "ADMIN_EMAIL", "ADMIN_PASSWORD"):
+        for key in (
+            "DATABASE_URL", "JWT_SECRET", "DAILY_API_KEY", "SEED_RESET_PASSWORDS", "ADMIN_EMAIL", "ADMIN_PASSWORD",
+            "LIVE_CLASS_PROVIDER", "GOOGLE_SERVICE_ACCOUNT_JSON", "GOOGLE_WORKSPACE_DOMAIN", "GOOGLE_MEET_ORGANIZER_EMAIL",
+        ):
             os.environ.pop(key, None)
+        os.environ.update(self.env_overrides)
         for name in [n for n in list(sys.modules) if n.startswith("backend")]:
             del sys.modules[name]
         from fastapi.testclient import TestClient
@@ -43,13 +51,20 @@ class LiveSessionAccessTests(unittest.TestCase):
     def _headers(self, credentials):
         return {"Authorization": f"Bearer {self._token(credentials)}"}
 
-    def _schedule(self, teacher_name, level="A1", credentials=DEVELOPER, date_time="2026-10-02 14:00"):
+    def _schedule(self, teacher_name, level="A1", credentials=DEVELOPER, date_time="2026-10-02 14:00", meeting_link=None):
         return self.client.post("/api/live-sessions", headers=self._headers(credentials), json={
             "title": "Ser vs Estar",
             "course_level": level,
             "teacher_name": teacher_name,
             "date_time": date_time,
+            "meeting_link": meeting_link,
         })
+
+
+class LiveSessionAccessTests(_LiveSessionTestCase):
+    def test_daily_is_the_default_provider(self):
+        config = self.client.get("/api/live-config", headers=self._headers(TUTOR)).json()
+        self.assertEqual(config, {"provider": "daily", "meet_auto_create": False})
 
     def test_tutor_cannot_schedule_under_another_name(self):
         response = self._schedule("Xiomara Villamizar", credentials=TUTOR)
@@ -120,6 +135,152 @@ class LiveSessionAccessTests(unittest.TestCase):
         session_id = self._schedule("Demo Tutor").json()["id"]
         self.client.cookies.clear()
         self.assertEqual(self.client.get(f"/api/live-sessions/{session_id}/chat").status_code, 401)
+
+
+MEET_LINK = "https://meet.google.com/abc-defg-hij"
+
+
+class MeetLiveSessionTests(_LiveSessionTestCase):
+    env_overrides = {"LIVE_CLASS_PROVIDER": "meet"}
+
+    def _now_gmt(self):
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+
+    def test_config_reports_meet_without_auto_links(self):
+        config = self.client.get("/api/live-config", headers=self._headers(STUDENT)).json()
+        self.assertEqual(config, {"provider": "meet", "meet_auto_create": False})
+
+    def test_pasted_link_is_normalized_and_used_to_start(self):
+        created = self._schedule("Demo Tutor", credentials=TUTOR, meeting_link="meet.google.com/ABC-DEFG-HIJ?authuser=0")
+        self.assertEqual(created.status_code, 200, created.text)
+        self.assertEqual(created.json()["meeting_link"], MEET_LINK)
+        self.assertEqual(created.json()["provider"], "meet")
+
+        started = self.client.post(f"/api/live-sessions/{created.json()['id']}/start", headers=self._headers(TUTOR))
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["provider"], "meet")
+        self.assertEqual(started.json()["room_url"], MEET_LINK)
+        self.assertEqual(started.json()["join_token"], "")
+
+    def test_rejects_links_that_are_not_meet(self):
+        response = self._schedule("Demo Tutor", credentials=TUTOR, meeting_link="https://evil.example.com/abc-defg-hij")
+        self.assertEqual(response.status_code, 400)
+
+    def test_start_without_link_or_auto_create_asks_for_a_link(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        response = self.client.post(f"/api/live-sessions/{session_id}/start", headers=self._headers(TUTOR))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Google Meet link", response.json()["detail"])
+
+    def test_start_creates_a_space_when_auto_create_is_configured(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        with mock.patch.object(self.module.meet, "auto_create_enabled", return_value=True), \
+                mock.patch.object(self.module.meet, "create_meet_space", return_value=MEET_LINK) as create:
+            response = self.client.post(f"/api/live-sessions/{session_id}/start", headers=self._headers(TUTOR))
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["room_url"], MEET_LINK)
+        create.assert_called_once_with("tutor@seroestar.com")
+
+    def test_students_get_the_link_only_from_join(self):
+        session_id = self._schedule("Demo Tutor", date_time=self._now_gmt(), meeting_link=MEET_LINK).json()["id"]
+        student = self._headers(STUDENT)
+
+        listed = self.client.get("/api/live-sessions", headers=student).json()
+        self.assertTrue(listed)
+        self.assertTrue(all(item["meeting_link"] is None and item["room_url"] is None for item in listed))
+        tutor_view = self.client.get("/api/live-sessions", headers=self._headers(TUTOR)).json()
+        self.assertEqual(tutor_view[0]["meeting_link"], MEET_LINK)
+
+        joined = self.client.post(f"/api/live-sessions/{session_id}/join", headers=student, json={"student_id_code": "SER-001"})
+        self.assertEqual(joined.status_code, 200, joined.text)
+        self.assertEqual(joined.json()["provider"], "meet")
+        self.assertEqual(joined.json()["room_url"], MEET_LINK)
+
+    def test_join_before_tutor_opens_a_linkless_class_waits(self):
+        session_id = self._schedule("Demo Tutor", date_time=self._now_gmt()).json()["id"]
+        response = self.client.post(f"/api/live-sessions/{session_id}/join", headers=self._headers(STUDENT), json={"student_id_code": "SER-001"})
+        self.assertEqual(response.status_code, 409)
+
+
+class MeetApiClientTests(unittest.TestCase):
+    """Exercise the real token + space requests against a fake Google."""
+
+    def setUp(self):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.public_key = key.public_key()
+        self.service_account = {
+            "client_email": "classes@seroestar.iam.gserviceaccount.com",
+            "private_key_id": "key-1",
+            "private_key": key.private_bytes(
+                serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+            ).decode("utf-8"),
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+        self._saved_env = dict(os.environ)
+        import json
+        os.environ.update({
+            "LIVE_CLASS_PROVIDER": "meet",
+            "GOOGLE_SERVICE_ACCOUNT_JSON": json.dumps(self.service_account),
+            "GOOGLE_WORKSPACE_DOMAIN": "iseroestar.com",
+            "GOOGLE_MEET_ORGANIZER_EMAIL": "admin@iseroestar.com",
+        })
+        from backend import meet
+        self.meet = meet
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._saved_env)
+
+    def _fake_google(self, requests_seen):
+        import io
+        import json
+
+        def urlopen(request, timeout=None):
+            requests_seen.append(request)
+            if request.full_url == self.service_account["token_uri"]:
+                body = {"access_token": "ya29.test"}
+            else:
+                body = {"name": "spaces/xyz", "meetingUri": "https://meet.google.com/abc-defg-hij"}
+            response = io.BytesIO(json.dumps(body).encode("utf-8"))
+            response.__enter__ = lambda *_: response
+            response.__exit__ = lambda *_: None
+            return response
+
+        return urlopen
+
+    def test_creates_a_trusted_space_as_the_tutor(self):
+        import json
+        import urllib.parse
+        from jose import jwt
+
+        seen = []
+        with mock.patch("urllib.request.urlopen", self._fake_google(seen)):
+            link = self.meet.create_meet_space("Xiomara@iseroestar.com")
+
+        self.assertEqual(link, MEET_LINK)
+        token_request, space_request = seen
+        assertion = urllib.parse.parse_qs(token_request.data.decode("utf-8"))["assertion"][0]
+        claims = jwt.decode(assertion, self.public_key, algorithms=["RS256"], audience=self.service_account["token_uri"])
+        self.assertEqual(claims["sub"], "xiomara@iseroestar.com")
+        self.assertEqual(claims["iss"], self.service_account["client_email"])
+        self.assertEqual(claims["scope"], self.meet.MEET_SCOPE)
+        self.assertEqual(space_request.headers["Authorization"], "Bearer ya29.test")
+        self.assertEqual(json.loads(space_request.data), {"config": {"accessType": "TRUSTED"}})
+
+    def test_tutors_outside_the_workspace_use_the_organizer(self):
+        self.assertEqual(self.meet.organizer_for("tutor@seroestar.com"), "admin@iseroestar.com")
+
+    def test_google_errors_become_meet_errors(self):
+        def failing_urlopen(request, timeout=None):
+            raise OSError("network down")
+
+        with mock.patch("urllib.request.urlopen", failing_urlopen):
+            with self.assertRaises(self.meet.MeetError):
+                self.meet.create_meet_space("xiomara@iseroestar.com")
+
 
 if __name__ == "__main__":
     unittest.main()
