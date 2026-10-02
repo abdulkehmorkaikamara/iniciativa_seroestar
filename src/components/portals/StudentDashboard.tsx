@@ -30,6 +30,7 @@ import {
 import { TRANSLATIONS } from "../../translations";
 import Logo from "../Logo";
 import LiveVideoRoom from "../LiveVideoRoom";
+import { useLiveChat } from "../useLiveChat";
 import AdaptiveLessonPlayer from "../AdaptiveLessonPlayer";
 import { TUTOR_PROFILES } from "../../tutors";
 
@@ -238,8 +239,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [recordings, setRecordings] = useState(INITIAL_RECORDINGS);
   const [sharedNotes, setSharedNotes] = useState<any[]>([]);
   const [courseCatalog, setCourseCatalog] = useState<any[]>([]);
-  const [chatMessages, setChatMessages] = useState<Array<{ id: string; sender: string; role: string; text: string; time: string }>>([]);
-  const [chatSocket, setChatSocket] = useState<WebSocket | null>(null);
   const [newChatMessage, setNewChatMessage] = useState("");
 
   // Attendance Tracker metrics
@@ -391,32 +390,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
   }, [deletedAnnouncementIds, student.studentIdCode]);
 
-  useEffect(() => {
-    if (!insideClassRoom || !activeSession?.id) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsHost = window.location.port === "3000" ? `${window.location.hostname}:8000` : window.location.host;
-    const socket = new WebSocket(`${protocol}://${wsHost}/ws/live-chat/${activeSession.id}`);
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
-      setChatMessages(prev => [
-        ...prev,
-        {
-          id: String(payload.id || Date.now()),
-          sender: payload.sender_name,
-          role: payload.sender_role,
-          text: payload.message,
-          time: new Date(payload.time_sent).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
-    };
-    setChatSocket(socket);
-
-    return () => {
-      socket.close();
-      setChatSocket(null);
-    };
-  }, [insideClassRoom, activeSession?.id]);
+  const { messages: chatMessages, error: chatError, send: sendChat } = useLiveChat(activeSession?.id, insideClassRoom);
 
   // Handle Note Creation
   const handleAddNote = (e: React.FormEvent) => {
@@ -598,15 +572,12 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   };
 
   // Live Chat send helper
-  const sendLiveChatMessage = (e: React.FormEvent) => {
+  const sendLiveChatMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newChatMessage.trim()) return;
-    if (chatSocket?.readyState === WebSocket.OPEN) {
-      chatSocket.send(JSON.stringify({
-        message: newChatMessage
-      }));
+    if (await sendChat(newChatMessage)) {
+      setNewChatMessage("");
     }
-    setNewChatMessage("");
   };
 
   const calculatedPercentage = Math.round(
@@ -912,8 +883,8 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               <div className="bg-slate-50 border-l border-slate-200 flex flex-col justify-between h-[450px] lg:h-auto">
                 <div className="p-4 border-b border-slate-200 bg-white flex justify-between items-center">
                   <span className="font-bold text-xs text-slate-500 uppercase tracking-widest">{d("Interactive Class Chat", "Chat Interactivo de Clase")}</span>
-                  <span className="text-[10px] font-mono font-bold bg-teal-100 text-teal-800 px-2.5 py-0.5 rounded-full">
-                    Active WebSocket
+                  <span className={`text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full ${chatError ? "bg-red-100 text-red-800" : "bg-teal-100 text-teal-800"}`}>
+                    {chatError ? d("Reconnecting", "Reconectando") : d("Live", "En vivo")}
                   </span>
                 </div>
 
@@ -936,6 +907,9 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   ))}
                 </div>
 
+                {chatError && (
+                  <p role="alert" className="px-4 py-1.5 text-[10px] font-semibold text-red-600 bg-red-50 border-t border-red-100">{chatError}</p>
+                )}
                 {/* Input send bar */}
                 <form onSubmit={sendLiveChatMessage} className="p-3 border-t border-slate-200 bg-white flex gap-2 w-full">
                   <input

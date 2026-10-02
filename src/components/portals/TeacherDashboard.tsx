@@ -18,6 +18,7 @@ import {
   Upload
 } from "lucide-react";
 import LiveVideoRoom from "../LiveVideoRoom";
+import { useLiveChat } from "../useLiveChat";
 import { findTutorByEmail } from "../../tutors";
 
 interface TeacherDashboardProps {
@@ -108,34 +109,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   // Live class room simulation
   const [currentActiveRoom, setCurrentActiveRoom] = useState<any | null>(null);
   const [activeRoomMessage, setActiveRoomMessage] = useState("");
-  const [roomChatMessages, setRoomChatMessages] = useState<Array<{ sender: string; role: string; text: string; time: string }>>([]);
-  const [chatSocket, setChatSocket] = useState<WebSocket | null>(null);
-
-  useEffect(() => {
-    if (!currentActiveRoom?.id) return;
-
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const wsHost = window.location.port === "3000" ? `${window.location.hostname}:8000` : window.location.host;
-    const socket = new WebSocket(`${protocol}://${wsHost}/ws/live-chat/${currentActiveRoom.id}`);
-    socket.onmessage = (event) => {
-      const payload = JSON.parse(event.data);
-      setRoomChatMessages(prev => [
-        ...prev,
-        {
-          sender: payload.sender_name,
-          role: payload.sender_role,
-          text: payload.message,
-          time: new Date(payload.time_sent).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-        }
-      ]);
-    };
-    setChatSocket(socket);
-
-    return () => {
-      socket.close();
-      setChatSocket(null);
-    };
-  }, [currentActiveRoom?.id]);
+  const { messages: roomChatMessages, error: roomChatError, send: sendRoomChat } = useLiveChat(currentActiveRoom?.id);
 
   // Shared note uploads form
   const [noteTitle, setNoteTitle] = useState("");
@@ -280,16 +254,12 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   };
 
   // Send live chat teacher reply
-  const handleSendTeacherReply = (e: React.FormEvent) => {
+  const handleSendTeacherReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRoomMessage.trim()) return;
-
-    if (chatSocket?.readyState === WebSocket.OPEN) {
-      chatSocket.send(JSON.stringify({
-        message: activeRoomMessage
-      }));
+    if (await sendRoomChat(activeRoomMessage)) {
+      setActiveRoomMessage("");
     }
-    setActiveRoomMessage("");
   };
 
   // Upload Shared Lesson Note
@@ -555,8 +525,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
             {/* Chat list */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 font-sans max-h-[350px]">
-              {roomChatMessages.map((m, idx) => (
-                <div key={idx} className="flex flex-col space-y-1">
+              {roomChatMessages.map((m) => (
+                <div key={m.id} className="flex flex-col space-y-1">
                   <div className="flex justify-between text-[10px] font-mono">
                     <span className="text-slate-600 font-bold">{m.sender}</span>
                     <span className="text-slate-400">{m.time}</span>
@@ -570,6 +540,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               ))}
             </div>
 
+            {roomChatError && (
+              <p role="alert" className="px-4 py-1.5 text-[10px] font-semibold text-red-600 bg-red-50 border-t border-red-100">{roomChatError}</p>
+            )}
             {/* Teacher Message input */}
             <form onSubmit={handleSendTeacherReply} className="p-3 border-t border-slate-200 bg-white flex gap-2">
               <input

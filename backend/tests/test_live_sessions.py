@@ -77,31 +77,49 @@ class LiveSessionAccessTests(unittest.TestCase):
 
     def test_chat_identity_comes_from_the_token(self):
         session_id = self._schedule("Demo Tutor").json()["id"]
-        token = self._token(STUDENT)
-        with self.client.websocket_connect(f"/ws/live-chat/{session_id}?token={token}") as ws:
-            ws.send_json({"sender_name": "Demo Tutor", "sender_role": "teacher", "message": "hola"})
-            received = ws.receive_json()
-        self.assertEqual(received["sender_name"], "Demo Student")
-        self.assertEqual(received["sender_role"], "student")
-        self.assertEqual(received["message"], "hola")
+        response = self.client.post(f"/api/live-sessions/{session_id}/chat", headers=self._headers(STUDENT), json={
+            "sender_name": "Demo Tutor", "sender_role": "teacher", "message": "  hola  ",
+        })
+        self.assertEqual(response.status_code, 200, response.text)
+        sent = response.json()
+        self.assertEqual(sent["sender_name"], "Demo Student")
+        self.assertEqual(sent["sender_role"], "student")
+        self.assertEqual(sent["message"], "hola")
+
+    def test_chat_polling_returns_only_newer_messages_in_order(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        student, tutor = self._headers(STUDENT), self._headers(TUTOR)
+        url = f"/api/live-sessions/{session_id}/chat"
+        first = self.client.post(url, headers=student, json={"message": "¿Ser o estar?"}).json()
+        self.client.post(url, headers=tutor, json={"message": "Estar"})
+
+        everything = self.client.get(url, headers=tutor).json()
+        self.assertEqual([m["message"] for m in everything], ["¿Ser o estar?", "Estar"])
+        self.assertEqual([m["sender_role"] for m in everything], ["student", "teacher"])
+        self.assertTrue(everything[0]["time_sent"].endswith(("Z", "+00:00")), everything[0]["time_sent"])
+
+        newer = self.client.get(f"{url}?after_id={first['id']}", headers=student).json()
+        self.assertEqual([m["message"] for m in newer], ["Estar"])
+
+    def test_chat_rejects_empty_messages(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        response = self.client.post(f"/api/live-sessions/{session_id}/chat", headers=self._headers(STUDENT), json={"message": "   "})
+        self.assertEqual(response.status_code, 400)
 
     def test_chat_rejects_students_from_another_level_and_other_tutors(self):
-        from starlette.websockets import WebSocketDisconnect
-
         b1_session = self._schedule("Demo Tutor", level="B1").json()["id"]
-        student_token = self._token(STUDENT)
-        with self.assertRaises(WebSocketDisconnect) as caught:
-            with self.client.websocket_connect(f"/ws/live-chat/{b1_session}?token={student_token}") as ws:
-                ws.receive_json()
-        self.assertEqual(caught.exception.code, 4403)
+        student = self._headers(STUDENT)
+        self.assertEqual(self.client.get(f"/api/live-sessions/{b1_session}/chat", headers=student).status_code, 403)
+        self.assertEqual(self.client.post(f"/api/live-sessions/{b1_session}/chat", headers=student, json={"message": "hi"}).status_code, 403)
 
         other_session = self._schedule("Xiomara Villamizar").json()["id"]
-        tutor_token = self._token(TUTOR)
-        with self.assertRaises(WebSocketDisconnect) as caught:
-            with self.client.websocket_connect(f"/ws/live-chat/{other_session}?token={tutor_token}") as ws:
-                ws.receive_json()
-        self.assertEqual(caught.exception.code, 4403)
+        tutor = self._headers(TUTOR)
+        self.assertEqual(self.client.get(f"/api/live-sessions/{other_session}/chat", headers=tutor).status_code, 403)
 
+    def test_chat_requires_login(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get(f"/api/live-sessions/{session_id}/chat").status_code, 401)
 
 if __name__ == "__main__":
     unittest.main()

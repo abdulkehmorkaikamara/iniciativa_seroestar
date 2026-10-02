@@ -11,9 +11,9 @@ import urllib.request
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
-from typing import List, Dict, Set
+from typing import List
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Response, Request
+from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
@@ -254,31 +254,8 @@ def academy_chatbot(payload: dict):
     except Exception:
         raise HTTPException(status_code=502, detail="The academy assistant is temporarily unavailable.")
 
-# Shared memory dictionary to track real-time WebSocket clients in Live Classes
-class LiveChatConnectionManager:
-    def __init__(self):
-        self.active_connections: Dict[int, Set[WebSocket]] = {}
-
-    async def connect(self, websocket: WebSocket, session_id: int):
-        await websocket.accept()
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = set()
-        self.active_connections[session_id].add(websocket)
-
-    def disconnect(self, websocket: WebSocket, session_id: int):
-        if session_id in self.active_connections:
-            self.active_connections[session_id].discard(websocket)
-
-    async def broadcast(self, message: dict, session_id: int):
-        if session_id in self.active_connections:
-            for connection in self.active_connections[session_id]:
-                try:
-                    await connection.send_json(message)
-                except Exception:
-                    pass
-
-chat_manager = LiveChatConnectionManager()
 MAX_CHAT_MESSAGE_LENGTH = 1000
+MAX_CHAT_PAGE = 200
 
 
 def _request_auth_payload(request: Request, allowed_roles: set[str] | None = None) -> dict:
@@ -1654,27 +1631,19 @@ async def upload_lesson_media(
     return lesson
 
 
-# --- 4. Interactive WebSockets Live Chat Room ---
-@app.websocket("/ws/live-chat/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: int, db: Session = Depends(get_db)):
-    token = websocket.query_params.get("token") or websocket.cookies.get("access_token")
-    try:
-        payload = auth.decode_token(token) if token else None
-    except HTTPException:
-        payload = None
-    if not payload or not roles.role_matches(payload.get("role"), roles.ALL_ROLES):
-        await websocket.close(code=4401)
-        return
+# --- 4. Live Class Chat ---
+# Plain request/response so it runs on serverless hosting (Vercel cannot hold
+# WebSockets open); clients poll with ``after_id`` for new messages.
+def _chat_sender_for(payload: dict, session: models.LiveClassSession, db: Session) -> tuple[str, str]:
+    """The (name, role) a caller posts under, or 403 if they are not in the class.
 
-    # Identity and membership come from the token, never from the client's
-    # message body, so nobody can post as the tutor or into another class.
-    role = roles.normalize_role(payload.get("role"))
-    payload["role"] = role
+    Identity comes from the token, never from the request body, so nobody can
+    post as the tutor or into another level's class.
+    """
     user = db.query(models.User).filter(models.User.id == payload.get("id")).first()
-    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
-    if not user or not session:
-        await websocket.close(code=4404)
-        return
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required.")
+    role = payload.get("role")
     if role == roles.STUDENT:
         student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == user.id).first()
         allowed = bool(student) and _student_in_session_level(student, session)
@@ -1683,43 +1652,55 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int, db: Session 
     else:
         allowed = True
     if not allowed:
-        await websocket.close(code=4403)
-        return
-    sender_name = user.full_name or user.email
-    sender_role = roles.legacy_role(role)
+        raise HTTPException(status_code=403, detail="You are not part of this live class.")
+    return user.full_name or user.email, roles.legacy_role(role)
 
-    await chat_manager.connect(websocket, session_id)
-    try:
-        while True:
-            data = await websocket.receive_json()
-            message = str((data or {}).get("message") or "").strip()[:MAX_CHAT_MESSAGE_LENGTH] if isinstance(data, dict) else ""
-            if not message:
-                continue
-            chat_msg = models.ChatMessage(
-                session_id=session_id,
-                sender_name=sender_name,
-                sender_role=sender_role,
-                message=message
-            )
-            # Save history in PostgreSQL
-            db.add(chat_msg)
-            db.commit()
-            db.refresh(chat_msg)
 
-            # Broadcast back
-            broadcast_payload = {
-                "id": chat_msg.id,
-                "session_id": session_id,
-                "sender_name": chat_msg.sender_name,
-                "sender_role": chat_msg.sender_role,
-                "message": chat_msg.message,
-                "time_sent": str(chat_msg.time_sent)
-            }
-            await chat_manager.broadcast(broadcast_payload, session_id)
-    except WebSocketDisconnect:
-        pass
-    finally:
-        chat_manager.disconnect(websocket, session_id)
+def _chat_session_for(session_id: int, request: Request, db: Session) -> tuple[models.LiveClassSession, tuple[str, str]]:
+    payload = _request_auth_payload(request, set(roles.ALL_ROLES))
+    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Class session not found.")
+    return session, _chat_sender_for(payload, session, db)
+
+
+def _chat_message_dict(chat_msg: models.ChatMessage) -> dict:
+    return {
+        "id": chat_msg.id,
+        "session_id": chat_msg.session_id,
+        "sender_name": chat_msg.sender_name,
+        "sender_role": chat_msg.sender_role,
+        "message": chat_msg.message,
+        "time_sent": _aware_datetime(chat_msg.time_sent) or datetime.now(timezone.utc),
+    }
+
+
+@app.get("/api/live-sessions/{session_id}/chat", response_model=List[schemas.ChatMessageResponse])
+def list_chat_messages(session_id: int, request: Request, after_id: int = 0, db: Session = Depends(get_db)):
+    _chat_session_for(session_id, request, db)
+    messages = db.query(models.ChatMessage).filter(
+        models.ChatMessage.session_id == session_id,
+        models.ChatMessage.id > after_id,
+    ).order_by(models.ChatMessage.id).limit(MAX_CHAT_PAGE).all()
+    return [_chat_message_dict(chat_msg) for chat_msg in messages]
+
+
+@app.post("/api/live-sessions/{session_id}/chat", response_model=schemas.ChatMessageResponse)
+def post_chat_message(session_id: int, payload: schemas.ChatMessagePost, request: Request, db: Session = Depends(get_db)):
+    session, (sender_name, sender_role) = _chat_session_for(session_id, request, db)
+    message = payload.message.strip()[:MAX_CHAT_MESSAGE_LENGTH]
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be empty.")
+    chat_msg = models.ChatMessage(
+        session_id=session.id,
+        sender_name=sender_name,
+        sender_role=sender_role,
+        message=message,
+    )
+    db.add(chat_msg)
+    db.commit()
+    db.refresh(chat_msg)
+    return _chat_message_dict(chat_msg)
 
 
 # --- 4. Blog/News Engine ---
