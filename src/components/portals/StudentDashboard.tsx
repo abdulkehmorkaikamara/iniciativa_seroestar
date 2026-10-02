@@ -603,8 +603,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     if (!newChatMessage.trim()) return;
     if (chatSocket?.readyState === WebSocket.OPEN) {
       chatSocket.send(JSON.stringify({
-        sender_name: student.fullName,
-        sender_role: "student",
         message: newChatMessage
       }));
     }

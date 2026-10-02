@@ -97,6 +97,13 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
   const [scheduleStatus, setScheduleStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  // Classes are stored in GMT; tutors outside Sierra Leone see what that means for them.
+  const localTimeHint = (() => {
+    if (!newDate || !newTime) return "";
+    const gmt = new Date(`${newDate}T${newTime}:00Z`);
+    if (Number.isNaN(gmt.getTime()) || gmt.getTimezoneOffset() === 0) return "";
+    return gmt.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+  })();
 
   // Live class room simulation
   const [currentActiveRoom, setCurrentActiveRoom] = useState<any | null>(null);
@@ -279,8 +286,6 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
     if (chatSocket?.readyState === WebSocket.OPEN) {
       chatSocket.send(JSON.stringify({
-        sender_name: teacherName,
-        sender_role: "teacher",
         message: activeRoomMessage
       }));
     }
@@ -705,6 +710,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               </div>
               <span className="sm:col-span-6 text-[9px] text-slate-400 font-semibold -mt-1">
                 {d("Times are in Sierra Leone Time (GMT).", "Los horarios están en horario de Sierra Leona (GMT).")}
+                {localTimeHint && ` ${d(`That is ${localTimeHint} your local time.`, `Equivale a las ${localTimeHint} en tu hora local.`)}`}
               </span>
               {scheduleStatus && (
                 <div

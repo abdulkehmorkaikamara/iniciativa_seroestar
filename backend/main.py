@@ -278,6 +278,7 @@ class LiveChatConnectionManager:
                     pass
 
 chat_manager = LiveChatConnectionManager()
+MAX_CHAT_MESSAGE_LENGTH = 1000
 
 
 def _request_auth_payload(request: Request, allowed_roles: set[str] | None = None) -> dict:
@@ -402,8 +403,14 @@ def _create_daily_token(room_name: str, is_owner: bool = False, user_name: str |
     return token_data.get("token") or "demo-token"
 
 
-def _session_scheduled_at(session: models.LiveClassSession) -> datetime | None:
-    raw_value = (session.date_time or "").strip()
+def _parse_session_datetime(raw_value: str | None) -> datetime | None:
+    """Parse a class's ``date_time``.
+
+    Classes are scheduled in Sierra Leone time, which is GMT with no daylight
+    saving, so the stored wall-clock value is UTC. Both portals label the time
+    that way and the tutor form converts nothing, so keep the two in step.
+    """
+    raw_value = (raw_value or "").strip()
     for fmt in ("%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d"):
         try:
             parsed = datetime.strptime(raw_value, fmt)
@@ -413,12 +420,21 @@ def _session_scheduled_at(session: models.LiveClassSession) -> datetime | None:
     return None
 
 
+def _session_scheduled_at(session: models.LiveClassSession) -> datetime | None:
+    return _parse_session_datetime(session.date_time)
+
+
+def _course_level_code(value: str | None) -> str:
+    match = re.search(r"\b(A1|A2|B1)\b", value or "", re.IGNORECASE)
+    return match.group(1).upper() if match else (value or "").upper()
+
+
+def _student_in_session_level(student: models.StudentProfile, session: models.LiveClassSession) -> bool:
+    return _course_level_code(student.course_level) == _course_level_code(session.course_level)
+
+
 def _student_can_join_session(student: models.StudentProfile, session: models.LiveClassSession) -> bool:
-    student_level_match = re.search(r"\b(A1|A2|B1)\b", student.course_level or "", re.IGNORECASE)
-    session_level_match = re.search(r"\b(A1|A2|B1)\b", session.course_level or "", re.IGNORECASE)
-    student_level = student_level_match.group(1).upper() if student_level_match else (student.course_level or "").upper()
-    session_level = session_level_match.group(1).upper() if session_level_match else (session.course_level or "").upper()
-    if student_level != session_level:
+    if not _student_in_session_level(student, session):
         return False
     scheduled_at = _session_scheduled_at(session)
     if not scheduled_at:
@@ -580,6 +596,32 @@ def _session_belongs_to_tutor(session: models.LiveClassSession, tutor: dict) -> 
         _normalize_teacher_name(tutor.get("display_name")),
     }
     return session_name in possible_names
+
+
+def _tutor_names_for(payload: dict, db: Session) -> set[str]:
+    """Normalized names a signed-in tutor's classes may be filed under.
+
+    Resolved from the account itself, never from the ``find_tutor_by_*``
+    helpers, which fall back to the first template tutor for unknown input.
+    """
+    names = set()
+    user = db.query(models.User).filter(models.User.id == payload.get("id")).first()
+    if user and user.full_name:
+        names.add(_normalize_teacher_name(user.full_name))
+    email = str(payload.get("sub") or "").strip().lower()
+    for tutor in TUTOR_PROFILES:
+        if email and tutor.get("email", "").lower() == email:
+            names.add(_normalize_teacher_name(tutor.get("name")))
+            names.add(_normalize_teacher_name(tutor.get("display_name")))
+    names.discard("")
+    return names
+
+
+def _require_session_owner(payload: dict, session: models.LiveClassSession, db: Session):
+    if payload.get("role") == roles.DEVELOPER:
+        return
+    if _normalize_teacher_name(session.teacher_name) not in _tutor_names_for(payload, db):
+        raise HTTPException(status_code=403, detail="Only the class's own tutor can manage this live class.")
 
 
 def _auto_mark_teacher_absences(db: Session):
@@ -1002,13 +1044,17 @@ def logout(response: Response):
 # --- 2. Live Teaching Sessions & Attendance Tracking ---
 @app.post("/api/live-sessions", response_model=schemas.LiveSessionResponse)
 def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, set(roles.STAFF_ROLES))
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    if auth_payload.get("role") == roles.TUTOR and _normalize_teacher_name(payload.teacher_name) not in _tutor_names_for(auth_payload, db):
+        raise HTTPException(status_code=403, detail="Tutors can only schedule classes under their own name.")
+    if not _parse_session_datetime(payload.date_time):
+        raise HTTPException(status_code=400, detail="Enter the class date and time as YYYY-MM-DD HH:MM (Sierra Leone time).")
     session = models.LiveClassSession(
         title=payload.title,
         course_level=payload.course_level,
         teacher_name=payload.teacher_name,
-        date_time=payload.date_time,
-        meeting_link=payload.meeting_link or f"https://meet.jit.si/IniciativaSerEstar-{random.randint(100,999)}",
+        date_time=payload.date_time.strip(),
+        meeting_link=payload.meeting_link,
         status="Scheduled"
     )
     db.add(session)
@@ -1019,10 +1065,11 @@ def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db
 
 @app.post("/api/live-sessions/{session_id}/start", response_model=schemas.LiveRoomProvisionResponse)
 def start_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, set(roles.STAFF_ROLES))
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
     session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Class session not found.")
+    _require_session_owner(auth_payload, session, db)
 
     room_details = _provision_live_room(session)
     session.provider = "daily"
@@ -1078,10 +1125,11 @@ def join_live_session(session_id: int, payload: schemas.LiveSessionJoinRequest, 
 
 @app.post("/api/live-sessions/{session_id}/end", response_model=schemas.LiveSessionResponse)
 def end_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, set(roles.STAFF_ROLES))
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
     session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
     if not session:
         raise HTTPException(status_code=404, detail="Class session not found.")
+    _require_session_owner(auth_payload, session, db)
 
     session.status = "Completed"
     session.ended_at = datetime.now(timezone.utc)
@@ -1617,16 +1665,41 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int, db: Session 
     if not payload or not roles.role_matches(payload.get("role"), roles.ALL_ROLES):
         await websocket.close(code=4401)
         return
+
+    # Identity and membership come from the token, never from the client's
+    # message body, so nobody can post as the tutor or into another class.
+    role = roles.normalize_role(payload.get("role"))
+    payload["role"] = role
+    user = db.query(models.User).filter(models.User.id == payload.get("id")).first()
+    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
+    if not user or not session:
+        await websocket.close(code=4404)
+        return
+    if role == roles.STUDENT:
+        student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == user.id).first()
+        allowed = bool(student) and _student_in_session_level(student, session)
+    elif role == roles.TUTOR:
+        allowed = _normalize_teacher_name(session.teacher_name) in _tutor_names_for(payload, db)
+    else:
+        allowed = True
+    if not allowed:
+        await websocket.close(code=4403)
+        return
+    sender_name = user.full_name or user.email
+    sender_role = roles.legacy_role(role)
+
     await chat_manager.connect(websocket, session_id)
     try:
         while True:
             data = await websocket.receive_json()
-            # Expecting schema: {"sender_name": "Sarah", "sender_role": "student", "message": "Hi!"}
+            message = str((data or {}).get("message") or "").strip()[:MAX_CHAT_MESSAGE_LENGTH] if isinstance(data, dict) else ""
+            if not message:
+                continue
             chat_msg = models.ChatMessage(
                 session_id=session_id,
-                sender_name=data["sender_name"],
-                sender_role=data["sender_role"],
-                message=data["message"]
+                sender_name=sender_name,
+                sender_role=sender_role,
+                message=message
             )
             # Save history in PostgreSQL
             db.add(chat_msg)
@@ -1644,6 +1717,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: int, db: Session 
             }
             await chat_manager.broadcast(broadcast_payload, session_id)
     except WebSocketDisconnect:
+        pass
+    finally:
         chat_manager.disconnect(websocket, session_id)
 
 
