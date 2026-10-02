@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, database_description
 from . import models, schemas, auth, roles, seed
 from .live_utils import build_room_details
+from . import meet
 from .storage import store_upload
 from .tutors import TUTOR_PROFILES, find_tutor_by_email, find_tutor_by_name
 
@@ -83,7 +84,7 @@ if ENVIRONMENT == "production":
             "FRONTEND_ORIGINS or VERCEL_URL": FRONTEND_ORIGINS or VERCEL_URL,
             "SEED_DEVELOPER_EMAIL or ADMIN_EMAIL": ADMIN_EMAIL,
             "SEED_DEVELOPER_PASSWORD or ADMIN_PASSWORD": ADMIN_PASSWORD,
-            "DAILY_API_KEY": os.getenv("DAILY_API_KEY"),
+            "DAILY_API_KEY": os.getenv("DAILY_API_KEY") if meet.live_provider() == "daily" else "not needed for Meet",
             "BLOB_READ_WRITE_TOKEN": os.getenv("BLOB_READ_WRITE_TOKEN"),
             "RECORDING_WEBHOOK_SECRET": RECORDING_WEBHOOK_SECRET,
         }.items() if not value
@@ -1026,12 +1027,19 @@ def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db
         raise HTTPException(status_code=403, detail="Tutors can only schedule classes under their own name.")
     if not _parse_session_datetime(payload.date_time):
         raise HTTPException(status_code=400, detail="Enter the class date and time as YYYY-MM-DD HH:MM (Sierra Leone time).")
+    provider = meet.live_provider()
+    meeting_link = None
+    if provider == "meet" and (payload.meeting_link or "").strip():
+        meeting_link = meet.normalize_meet_url(payload.meeting_link)
+        if not meeting_link:
+            raise HTTPException(status_code=400, detail="Paste a Google Meet link like https://meet.google.com/abc-defg-hij.")
     session = models.LiveClassSession(
         title=payload.title,
         course_level=payload.course_level,
         teacher_name=payload.teacher_name,
         date_time=payload.date_time.strip(),
-        meeting_link=payload.meeting_link,
+        meeting_link=meeting_link,
+        provider=provider,
         status="Scheduled"
     )
     db.add(session)
@@ -1048,11 +1056,26 @@ def start_live_session(session_id: int, request: Request, db: Session = Depends(
         raise HTTPException(status_code=404, detail="Class session not found.")
     _require_session_owner(auth_payload, session, db)
 
-    room_details = _provision_live_room(session)
-    session.provider = "daily"
-    session.room_name = room_details["room_name"]
-    session.room_url = room_details["room_url"]
-    session.join_token = room_details["join_token"]
+    if meet.live_provider() == "meet":
+        meeting_url = session.room_url if session.provider == "meet" else None
+        meeting_url = meeting_url or meet.normalize_meet_url(session.meeting_link)
+        if not meeting_url:
+            if not meet.auto_create_enabled():
+                raise HTTPException(status_code=400, detail="Add a Google Meet link to this class before starting it.")
+            try:
+                meeting_url = meet.create_meet_space(str(auth_payload.get("sub") or ""))
+            except meet.MeetError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+        session.provider = "meet"
+        session.room_name = meeting_url.rsplit("/", 1)[-1]
+        session.room_url = meeting_url
+        session.join_token = None
+    else:
+        room_details = _provision_live_room(session)
+        session.provider = "daily"
+        session.room_name = room_details["room_name"]
+        session.room_url = room_details["room_url"]
+        session.join_token = room_details["join_token"]
     session.status = "Live"
     session.started_at = datetime.now(timezone.utc)
     db.commit()
@@ -1062,7 +1085,7 @@ def start_live_session(session_id: int, request: Request, db: Session = Depends(
         "title": session.title,
         "room_name": session.room_name,
         "room_url": session.room_url,
-        "join_token": session.join_token,
+        "join_token": session.join_token or "",
         "status": session.status,
         "provider": session.provider,
     }
@@ -1077,6 +1100,20 @@ def join_live_session(session_id: int, payload: schemas.LiveSessionJoinRequest, 
     student = _require_matching_student(request, payload.student_id_code, db)
     if not _student_can_join_session(student, session):
         raise HTTPException(status_code=403, detail="You are not enrolled for this live class or it is outside the join window.")
+
+    if session.provider == "meet":
+        meeting_url = session.room_url or meet.normalize_meet_url(session.meeting_link)
+        if not meeting_url:
+            raise HTTPException(status_code=409, detail="Your tutor hasn't opened this class yet. Try again in a moment.")
+        return {
+            "id": session.id,
+            "title": session.title,
+            "room_name": meeting_url.rsplit("/", 1)[-1],
+            "room_url": meeting_url,
+            "join_token": "",
+            "status": session.status,
+            "provider": "meet",
+        }
 
     if not session.room_url:
         room_details = _provision_live_room(session)
@@ -1122,9 +1159,19 @@ def end_live_session(session_id: int, request: Request, db: Session = Depends(ge
 
 @app.get("/api/live-sessions", response_model=List[schemas.LiveSessionResponse])
 def get_live_sessions(request: Request, db: Session = Depends(get_db)):
-    _request_auth_payload(request, set(roles.ALL_ROLES))
+    auth_payload = _request_auth_payload(request, set(roles.ALL_ROLES))
     _auto_mark_teacher_absences(db)
-    return db.query(models.LiveClassSession).all()
+    sessions = [schemas.LiveSessionResponse.model_validate(session) for session in db.query(models.LiveClassSession).all()]
+    if auth_payload.get("role") == roles.STUDENT:
+        # Students get the room link from /join, after the level and time checks.
+        sessions = [session.model_copy(update={"meeting_link": None, "room_url": None}) for session in sessions]
+    return sessions
+
+
+@app.get("/api/live-config")
+def get_live_config(request: Request):
+    _request_auth_payload(request, set(roles.ALL_ROLES))
+    return {"provider": meet.live_provider(), "meet_auto_create": meet.auto_create_enabled()}
 
 
 @app.get("/api/tutors")
