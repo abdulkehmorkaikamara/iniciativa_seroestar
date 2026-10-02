@@ -62,6 +62,11 @@ class _LiveSessionTestCase(unittest.TestCase):
 
 
 class LiveSessionAccessTests(_LiveSessionTestCase):
+    def test_meeting_link_endpoint_is_meet_only(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        response = self.client.put(f"/api/live-sessions/{session_id}/meeting-link", headers=self._headers(TUTOR), json={"meeting_link": "https://meet.google.com/abc-defg-hij"})
+        self.assertEqual(response.status_code, 400)
+
     def test_daily_is_the_default_provider(self):
         config = self.client.get("/api/live-config", headers=self._headers(TUTOR)).json()
         self.assertEqual(config, {"provider": "daily", "meet_auto_create": False})
@@ -195,6 +200,41 @@ class MeetLiveSessionTests(_LiveSessionTestCase):
         self.assertEqual(joined.status_code, 200, joined.text)
         self.assertEqual(joined.json()["provider"], "meet")
         self.assertEqual(joined.json()["room_url"], MEET_LINK)
+
+    def _set_link(self, session_id, link, credentials=TUTOR):
+        return self.client.put(f"/api/live-sessions/{session_id}/meeting-link", headers=self._headers(credentials), json={"meeting_link": link})
+
+    def test_tutor_can_attach_a_link_to_an_existing_class_and_start_it(self):
+        session_id = self._schedule("Demo Tutor").json()["id"]
+        updated = self._set_link(session_id, "https://meet.google.com/abc-defg-hij/")
+        self.assertEqual(updated.status_code, 200, updated.text)
+        self.assertEqual(updated.json()["meeting_link"], MEET_LINK)
+
+        started = self.client.post(f"/api/live-sessions/{session_id}/start", headers=self._headers(TUTOR))
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["room_url"], MEET_LINK)
+
+    def test_changing_the_link_of_a_live_class_updates_what_students_join(self):
+        session_id = self._schedule("Demo Tutor", meeting_link=MEET_LINK).json()["id"]
+        self.client.post(f"/api/live-sessions/{session_id}/start", headers=self._headers(TUTOR))
+        self.assertEqual(self._set_link(session_id, "https://meet.google.com/xyz-wxyz-xyz").status_code, 200)
+
+        joined = self.client.post(f"/api/live-sessions/{session_id}/join", headers=self._headers(STUDENT), json={"student_id_code": "SER-001"})
+        self.assertEqual(joined.json()["room_url"], "https://meet.google.com/xyz-wxyz-xyz")
+
+    def test_only_the_owning_tutor_can_set_the_link_and_it_must_be_meet(self):
+        other = self._schedule("Xiomara Villamizar").json()["id"]
+        own = self._schedule("Demo Tutor").json()["id"]
+        self.assertEqual(self._set_link(other, MEET_LINK).status_code, 403)
+        self.assertEqual(self._set_link(own, MEET_LINK, credentials=STUDENT).status_code, 403)
+        self.assertEqual(self._set_link(own, "https://zoom.us/j/123").status_code, 400)
+
+    def test_cannot_set_a_link_on_a_finished_class(self):
+        session_id = self._schedule("Demo Tutor", meeting_link=MEET_LINK).json()["id"]
+        tutor = self._headers(TUTOR)
+        self.client.post(f"/api/live-sessions/{session_id}/start", headers=tutor)
+        self.client.post(f"/api/live-sessions/{session_id}/end", headers=tutor)
+        self.assertEqual(self._set_link(session_id, MEET_LINK).status_code, 400)
 
     def test_join_before_tutor_opens_a_linkless_class_waits(self):
         session_id = self._schedule("Demo Tutor", date_time=self._now_gmt()).json()["id"]
