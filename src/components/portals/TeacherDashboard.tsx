@@ -165,6 +165,39 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     }, 4500);
   };
 
+  // Create a class record; shared by scheduling and "Start class now".
+  const createClass = async (title: string, level: string, dateTime: string) => {
+    const response = await fetch("/api/live-sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        course_level: level,
+        teacher_name: teacherName,
+        date_time: dateTime
+      })
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      throw new Error(payload?.detail || d("The class could not be scheduled.", "No se pudo programar la clase."));
+    }
+
+    const created = await response.json();
+    const newClass = {
+      id: created.id,
+      title: created.title,
+      level: created.course_level,
+      date: created.date_time,
+      time: created.date_time,
+      status: created.status,
+      link: created.meeting_link
+    };
+    setScheduledClasses((current) => [...current, newClass]);
+    setProgressRefreshKey(prev => prev + 1);
+    return newClass;
+  };
+
   // Schedule class
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -178,38 +211,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     }
 
     try {
-      const response = await fetch("/api/live-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: newTitle,
-          course_level: newLevel,
-          teacher_name: teacherName,
-          date_time: `${newDate} ${newTime}`
-        })
-      });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.detail || d("The class could not be scheduled.", "No se pudo programar la clase."));
-      }
-
-      const created = await response.json();
-      const newClass = {
-        id: created.id,
-        title: created.title,
-        level: created.course_level,
-        date: created.date_time,
-        time: created.date_time,
-        status: created.status,
-        link: created.meeting_link
-      };
-
-      setScheduledClasses((current) => [...current, newClass]);
-      setProgressRefreshKey(prev => prev + 1);
+      const created = await createClass(newTitle, newLevel, `${newDate} ${newTime}`);
       setScheduleStatus({
         type: "success",
-        message: d(`${created.title} was scheduled for ${created.course_level}.`, `${created.title} se programó para el nivel ${created.course_level}.`)
+        message: d(`${created.title} was scheduled for ${created.level}.`, `${created.title} se programó para el nivel ${created.level}.`)
       });
       setNewTitle("");
       setNewDate("");
@@ -235,6 +240,28 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       setProgressRefreshKey(prev => prev + 1);
     } catch (error: any) {
       alert(error?.message || d("The live classroom could not start.", "No se pudo iniciar el aula en vivo."));
+    }
+  };
+
+  // One click: create a class for the current GMT time and launch it.
+  const [startingNow, setStartingNow] = useState(false);
+  const handleStartClassNow = async () => {
+    if (startingNow || currentActiveRoom) return;
+    setStartingNow(true);
+    setScheduleStatus(null);
+    try {
+      const nowGmt = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const title = newTitle.trim() || d(`${newLevel} live class`, `Clase en vivo ${newLevel}`);
+      const created = await createClass(title, newLevel, nowGmt);
+      setNewTitle("");
+      await handleLaunchClass(created);
+    } catch (error: any) {
+      setScheduleStatus({
+        type: "error",
+        message: error?.message || d("The live classroom could not start.", "No se pudo iniciar el aula en vivo.")
+      });
+    } finally {
+      setStartingNow(false);
     }
   };
 
@@ -591,6 +618,21 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               <div className="flex justify-between items-center border-b border-slate-100 pb-3">
                 <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Scheduled Live Sessions", "Sesiones en Vivo Programadas")}</h3>
                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">{d("Sierra Leone Time (GMT)", "Hora de Sierra Leona (GMT)")}</span>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
+                <p className="text-[11px] text-emerald-900 font-semibold leading-snug">
+                  {d(`Start a ${newLevel} class right away. It uses the title below if you've typed one.`, `Inicia una clase de ${newLevel} ahora mismo. Usa el título de abajo si escribiste uno.`)}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleStartClassNow}
+                  disabled={startingNow || Boolean(currentActiveRoom)}
+                  className="inline-flex items-center px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-not-allowed text-white font-sans text-xs font-bold rounded-xl shadow-xs transition cursor-pointer shrink-0"
+                >
+                  <Video size={14} className="mr-1.5" />
+                  {startingNow ? d("Starting...", "Iniciando...") : d("Start class now", "Iniciar clase ahora")}
+                </button>
               </div>
 
               {/* Scheduled class lists */}
