@@ -1137,6 +1137,34 @@ def join_live_session(session_id: int, payload: schemas.LiveSessionJoinRequest, 
     }
 
 
+@app.put("/api/live-sessions/{session_id}/meeting-link", response_model=schemas.LiveSessionResponse)
+def set_live_session_meeting_link(session_id: int, payload: schemas.LiveSessionMeetingLinkUpdate, request: Request, db: Session = Depends(get_db)):
+    """Attach or replace a class's Google Meet link (e.g. classes scheduled before the switch to Meet)."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    if meet.live_provider() != "meet":
+        raise HTTPException(status_code=400, detail="Live classes are not using Google Meet.")
+    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Class session not found.")
+    _require_session_owner(auth_payload, session, db)
+    if session.status in ("Completed", "Teacher Absent"):
+        raise HTTPException(status_code=400, detail="This class has already finished.")
+    meeting_link = meet.normalize_meet_url(payload.meeting_link)
+    if not meeting_link:
+        raise HTTPException(status_code=400, detail="Paste a Google Meet link like https://meet.google.com/abc-defg-hij.")
+
+    session.meeting_link = meeting_link
+    if session.status == "Live" and session.provider == "meet":
+        # Students joining from now on get the new link.
+        session.room_url = meeting_link
+        session.room_name = meeting_link.rsplit("/", 1)[-1]
+    elif session.status != "Live":
+        session.provider = "meet"
+    db.commit()
+    db.refresh(session)
+    return session
+
+
 @app.post("/api/live-sessions/{session_id}/end", response_model=schemas.LiveSessionResponse)
 def end_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
     auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))

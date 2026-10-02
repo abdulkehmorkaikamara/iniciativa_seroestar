@@ -84,6 +84,9 @@ class AttendanceJoinRequest(BaseModel):
     student_id_code: str
     session_id: int
 
+class LiveSessionMeetingLinkUpdate(BaseModel):
+    meeting_link: str
+
 class LiveSessionJoinRequest(BaseModel):
     student_id_code: str
 
