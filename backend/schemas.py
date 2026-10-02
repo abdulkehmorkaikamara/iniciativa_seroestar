@@ -131,6 +131,9 @@ class ChatMessageCreate(BaseModel):
     sender_role: str
     message: str
 
+class ChatMessagePost(BaseModel):
+    message: str
+
 class ChatMessageResponse(ChatMessageCreate):
     id: int
     time_sent: datetime
