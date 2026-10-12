@@ -31,6 +31,7 @@ import {
 } from "recharts";
 import { TUTOR_PROFILES } from "../../tutors";
 import PasswordInput from "../PasswordInput";
+import { groupOptionsForLevel } from "../../groups";
 
 interface AdminDashboardProps {
   onExit: () => void;
@@ -850,7 +851,7 @@ export default function AdminDashboard({
               />
               <select
                 value={studentLevel}
-                onChange={(e) => setStudentLevel(e.target.value)}
+                onChange={(e) => { setStudentLevel(e.target.value); setStudentGroup("Group 1"); }}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-600 focus:outline-hidden"
               >
                 <option value="A1">A1 Beginner</option>
@@ -862,8 +863,9 @@ export default function AdminDashboard({
                 onChange={(e) => setStudentGroup(e.target.value)}
                 className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-600 focus:outline-hidden"
               >
-                <option value="Group 1">{d("Group 1", "Grupo 1")}</option>
-                <option value="Group 2">{d("Group 2", "Grupo 2")}</option>
+                {groupOptionsForLevel(studentLevel).map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
               </select>
               <select
                 value={studentMode}

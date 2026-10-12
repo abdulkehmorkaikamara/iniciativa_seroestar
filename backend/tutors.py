@@ -1,16 +1,17 @@
+# Ivoneth teaches all three active groups (A1G1, A1G2, A2G1); the first entry is the default tutor.
 TUTOR_PROFILES = [
-    {
-        "id": "xiomara-villamizar",
-        "name": "Xiomara Villamizar",
-        "display_name": "Tutora Xiomara Villamizar",
-        "email": "xiomara@seroestar.com",
-        "assigned_levels": ["A1", "A2"],
-    },
     {
         "id": "ivoneth-frias",
         "name": "Ivoneth Frias",
         "display_name": "Tutora Ivoneth Frias",
         "email": "ivoneth@seroestar.com",
+        "assigned_levels": ["A1", "A2"],
+    },
+    {
+        "id": "xiomara-villamizar",
+        "name": "Xiomara Villamizar",
+        "display_name": "Tutora Xiomara Villamizar",
+        "email": "xiomara@seroestar.com",
         "assigned_levels": ["A1", "A2"],
     },
     {
