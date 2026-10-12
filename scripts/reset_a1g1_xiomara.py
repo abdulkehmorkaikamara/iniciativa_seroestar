@@ -15,6 +15,7 @@ those rows. Nothing is deleted unless --apply is passed.
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -41,8 +42,8 @@ def row_to_dict(row):
 def is_a1g1(student):
     level = (student.course_level or "").upper()
     group = (student.class_group or "").lower()
-    in_group_2 = "2" in group or "evening" in group
-    return "A1" in level and not in_group_2
+    in_other_group = bool(re.search(r"\b[23]\b", group)) or "evening" in group
+    return "A1" in level and not in_other_group
 
 
 def collect(db):
