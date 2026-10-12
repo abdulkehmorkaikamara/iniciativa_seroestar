@@ -30,7 +30,7 @@ export function findClassGroup(courseLevel?: string, classGroup?: string): Class
 }
 
 export function classGroupLabel(group: ClassGroup) {
-  return `${group.code} (${group.school})`;
+  return group.school;
 }
 
 // Options for a "class group" dropdown. Levels without a named group (B1)
