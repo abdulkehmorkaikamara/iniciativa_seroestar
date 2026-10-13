@@ -209,6 +209,19 @@ class LessonProgress(Base):
     student = relationship("StudentProfile", back_populates="lesson_progress")
     lesson = relationship("CourseLesson", back_populates="progress")
 
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    text = Column(Text, nullable=False)
+    course_level = Column(String(50), nullable=False) # A1, A2, B1
+    class_group = Column(String(50), nullable=True) # NULL = every group at the level
+    alert_type = Column(String(50), default="info")
+    created_by = Column(String(255), nullable=False) # tutor's display name
+    created_by_email = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class BlogPost(Base):
     __tablename__ = "blog_posts"
 

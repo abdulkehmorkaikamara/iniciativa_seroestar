@@ -101,3 +101,35 @@ class GroupContentTests(_LiveSessionTestCase):
             "session_id": session_id, "student_id_code": self._student_code(), "status": "Present",
         })
         self.assertEqual(response.status_code, 400)
+
+
+class AnnouncementTests(_LiveSessionTestCase):
+    def _announce(self, credentials=TUTOR, **overrides):
+        body = {"title": "Sin clase el sábado", "text": "Nos vemos el martes.", "course_level": "A1", "class_group": "Group 1", "alert_type": "important"}
+        body.update(overrides)
+        return self.client.post("/api/announcements", headers=self._headers(credentials), json=body)
+
+    def test_students_only_receive_their_own_schools_announcements(self):
+        self.assertEqual(self._announce().status_code, 200)
+        self._announce(title="Choithram only", class_group="Group 2")
+        self._announce(title="A2 only", course_level="A2", class_group="Group 1")
+        self._announce(title="Every A1 school", class_group=None)
+        titles = [a["title"] for a in self.client.get("/api/announcements", headers=self._headers(STUDENT)).json()]
+        self.assertEqual(sorted(titles), ["Every A1 school", "Sin clase el sábado"])
+        staff_titles = [a["title"] for a in self.client.get("/api/announcements", headers=self._headers(TUTOR)).json()]
+        self.assertEqual(len(staff_titles), 4)
+
+    def test_author_is_taken_from_the_account(self):
+        created = self._announce().json()
+        self.assertEqual(created["created_by"], "Demo Tutor")
+        self.assertEqual(created["alert_type"], "important")
+
+    def test_students_cannot_announce_and_only_the_author_can_delete(self):
+        self.assertEqual(self._announce(credentials=STUDENT).status_code, 403)
+        mine = self._announce().json()
+        other = self._announce(credentials=DEVELOPER).json()
+        headers = self._headers(TUTOR)
+        self.assertEqual(self.client.delete(f"/api/announcements/{other['id']}", headers=headers).status_code, 403)
+        self.assertEqual(self.client.delete(f"/api/announcements/{mine['id']}", headers=headers).status_code, 200)
+        remaining = [a["id"] for a in self.client.get("/api/announcements", headers=self._headers(STUDENT)).json()]
+        self.assertEqual(remaining, [other["id"]])

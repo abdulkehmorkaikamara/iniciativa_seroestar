@@ -93,6 +93,26 @@ class GoogleAccountProvisionRequest(BaseModel):
 class LiveSessionMeetingLinkUpdate(BaseModel):
     meeting_link: str
 
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    text: str = Field(min_length=1, max_length=5000)
+    course_level: str
+    class_group: Optional[str] = None
+    alert_type: str = "info"
+
+class AnnouncementResponse(BaseModel):
+    id: int
+    title: str
+    text: str
+    course_level: str
+    class_group: Optional[str] = None
+    alert_type: str
+    created_by: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class ManualAttendanceUpdate(BaseModel):
     session_id: int
     student_id_code: str

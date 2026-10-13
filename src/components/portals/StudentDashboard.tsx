@@ -163,20 +163,8 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [newNoteContent, setNewNoteContent] = useState("");
   const [personalNotesSearch, setPersonalNotesSearch] = useState("");
 
-  // Interactive Live Teacher Announcements state (polls localStorage).
-  // No fake baseline announcements — those were attributed to real tutor
-  // names with dates that are now months in the past, which would show
-  // every new student stale "news" that never actually happened.
-  const [announcements, setAnnouncements] = useState<Array<{ id: string; courseLevel: string; title: string; text: string; date: string; type: string; instructor: string }>>(() => {
-    const saved = localStorage.getItem("course_announcements");
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  // Tutor announcements for this student's school, loaded from the backend.
+  const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; text: string; date: string; type: string; instructor: string }>>([]);
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`announcement_reads_${student.studentIdCode}`);
@@ -395,6 +383,28 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
   }, [deletedAnnouncementIds, student.studentIdCode]);
 
+  useEffect(() => {
+    const loadAnnouncements = () => {
+      fetch("/api/announcements")
+        .then((res) => res.ok ? res.json() : [])
+        .then((data) => {
+          if (!Array.isArray(data)) return;
+          setAnnouncements(data.map((item: any) => ({
+            id: `ann-${item.id}`,
+            title: item.title,
+            text: item.text,
+            date: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
+            type: item.alert_type || "info",
+            instructor: item.created_by
+          })));
+        })
+        .catch(() => {});
+    };
+    loadAnnouncements();
+    const refreshTimer = window.setInterval(loadAnnouncements, 60000);
+    return () => window.clearInterval(refreshTimer);
+  }, []);
+
   const { messages: chatMessages, error: chatError, send: sendChat } = useLiveChat(activeSession?.id, insideClassRoom);
 
   // Handle Note Creation
@@ -607,10 +617,9 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     return matchesSearch && matchesLevel && matchesEnrollment && contentReachesStudent(rec, student) && taughtByGroupTutor(teacher);
   });
 
+  // The API already limits announcements to the student's level and school.
   const visibleAnnouncements = announcements.filter(
-    (announcement) =>
-      announcement.courseLevel === student.courseLevel &&
-      !deletedAnnouncementIds.includes(announcement.id)
+    (announcement) => !deletedAnnouncementIds.includes(announcement.id)
   );
 
   const visibleSharedNotes = sharedNotes.filter((note: any) => {

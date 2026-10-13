@@ -1579,6 +1579,60 @@ def delete_recording(recording_id: int, request: Request, db: Session = Depends(
     return {"detail": "Recording deleted"}
 
 
+@app.get("/api/announcements", response_model=List[schemas.AnnouncementResponse])
+def list_announcements(request: Request, db: Session = Depends(get_db)):
+    """Students get only their own school's announcements; staff get them all."""
+    auth_payload = _request_auth_payload(request, set(roles.ALL_ROLES))
+    announcements = db.query(models.Announcement).order_by(models.Announcement.id.desc()).all()
+    if auth_payload.get("role") == roles.STUDENT:
+        student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == auth_payload.get("id")).first()
+        if not student:
+            return []
+        announcements = [
+            item for item in announcements
+            if _course_level_code(item.course_level) == _course_level_code(student.course_level)
+            and content_in_group(item.class_group, student.class_group)
+        ]
+    return announcements
+
+
+@app.post("/api/announcements", response_model=schemas.AnnouncementResponse)
+def create_announcement(payload: schemas.AnnouncementCreate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(payload.course_level)
+    if level not in {"A1", "A2", "B1"}:
+        raise HTTPException(status_code=400, detail="Invalid course level.")
+    user = db.query(models.User).filter(models.User.id == auth_payload.get("id")).first()
+    alert_type = payload.alert_type if payload.alert_type in {"info", "success", "important"} else "info"
+    announcement = models.Announcement(
+        title=payload.title.strip(),
+        text=payload.text.strip(),
+        course_level=level,
+        class_group=_normalize_class_group(payload.class_group),
+        alert_type=alert_type,
+        created_by=(user.full_name if user and user.full_name else str(auth_payload.get("sub") or "Tutor")),
+        created_by_email=str(auth_payload.get("sub") or "").lower() or None,
+    )
+    db.add(announcement)
+    db.commit()
+    db.refresh(announcement)
+    return announcement
+
+
+@app.delete("/api/announcements/{announcement_id}")
+def delete_announcement(announcement_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    announcement = db.query(models.Announcement).filter(models.Announcement.id == announcement_id).first()
+    if not announcement:
+        raise HTTPException(status_code=404, detail="Announcement not found.")
+    own_email = str(auth_payload.get("sub") or "").lower()
+    if auth_payload.get("role") != roles.DEVELOPER and (announcement.created_by_email or "") != own_email:
+        raise HTTPException(status_code=403, detail="You can only delete your own announcements.")
+    db.delete(announcement)
+    db.commit()
+    return {"detail": "Announcement deleted"}
+
+
 @app.get("/api/tutor/group-attendance")
 def get_group_attendance(course_level: str, class_group: str, request: Request, db: Session = Depends(get_db)):
     """Attendance sheet for one school's group: its students, classes and marks."""

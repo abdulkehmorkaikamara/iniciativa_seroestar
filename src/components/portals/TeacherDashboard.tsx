@@ -141,37 +141,41 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [publishedRefreshKey, setPublishedRefreshKey] = useState(0);
   const [myNotes, setMyNotes] = useState<any[]>([]);
   const [myRecordings, setMyRecordings] = useState<any[]>([]);
+  const [myAnnouncements, setMyAnnouncements] = useState<any[]>([]);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Cohort announcement builder
   const [annTitle, setAnnTitle] = useState("");
   const [annText, setAnnText] = useState("");
-  const [annLevel, setAnnLevel] = useState("A1");
+  const [annGroupCode, setAnnGroupCode] = useState(tutorGroups[0].code);
   const [annType, setAnnType] = useState("info");
   const [annSuccessMessage, setAnnSuccessMessage] = useState(false);
 
-  const handleCreateAnnouncement = (e: React.FormEvent) => {
+  const [annError, setAnnError] = useState<string | null>(null);
+
+  const handleCreateAnnouncement = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!annTitle || !annText) return;
+    setAnnError(null);
+    const group = groupByCode(annGroupCode);
+    const response = await fetch("/api/announcements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: annTitle,
+        text: annText,
+        course_level: group.level,
+        class_group: classGroupValue(group),
+        alert_type: annType
+      })
+    }).catch(() => null);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setAnnError(payload?.detail || d("The announcement could not be published.", "No se pudo publicar el anuncio."));
+      return;
+    }
 
-    const newAnn = {
-      id: `ann-${Date.now()}`,
-      courseLevel: annLevel,
-      title: annTitle,
-      text: annText,
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      type: annType,
-      instructor: teacherName
-    };
-
-    // Store in course_announcements list
-    const existing = JSON.parse(localStorage.getItem("course_announcements") || "[]");
-    existing.push(newAnn);
-    localStorage.setItem("course_announcements", JSON.stringify(existing));
-
-    // Force custom visual refesh
-    window.dispatchEvent(new Event("storage"));
-
+    setPublishedRefreshKey((key) => key + 1);
     setAnnSuccessMessage(true);
     setAnnTitle("");
     setAnnText("");
@@ -501,15 +505,24 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       .then((res) => res.ok ? res.json() : [])
       .then((data) => setMyRecordings(Array.isArray(data) ? data.filter((rec: any) => isMine(rec.teacher_name)) : []))
       .catch(() => {});
+    fetch("/api/announcements")
+      .then((res) => res.ok ? res.json() : [])
+      .then((data) => setMyAnnouncements(Array.isArray(data) ? data.filter((ann: any) => isMine(ann.created_by)) : []))
+      .catch(() => {});
   }, [publishedRefreshKey, teacherEmail, teacherName, teacherDisplayName]);
 
-  const handleDeletePublished = async (kind: "class" | "note" | "recording", item: any) => {
+  const handleDeletePublished = async (kind: "class" | "note" | "recording" | "announcement", item: any) => {
     const warning = kind === "class"
       ? d(`Delete the class "${item.title}"? Students will no longer see it, and its attendance marks are deleted too.`, `¿Eliminar la clase "${item.title}"? Los estudiantes ya no la verán y también se borrará su asistencia.`)
       : d(`Delete "${item.title}"? Students will no longer see it.`, `¿Eliminar "${item.title}"? Los estudiantes ya no lo verán.`);
     if (!window.confirm(warning)) return;
     setDeleteError(null);
-    const url = kind === "class" ? `/api/live-sessions/${item.id}` : kind === "note" ? `/api/lesson-notes/${item.id}` : `/api/recordings/${item.id}`;
+    const url = {
+      class: `/api/live-sessions/${item.id}`,
+      note: `/api/lesson-notes/${item.id}`,
+      recording: `/api/recordings/${item.id}`,
+      announcement: `/api/announcements/${item.id}`,
+    }[kind];
     const response = await fetch(url, { method: "DELETE" }).catch(() => null);
     if (!response?.ok) {
       const payload = await response?.json().catch(() => null);
@@ -1256,8 +1269,11 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
             {annSuccessMessage && (
               <div className="p-3 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-2xl text-[10px] text-left leading-normal font-sans font-medium animate-fade-in">
-                {d("¡Beamed! Pinned instantly to students gradebook feed dashboard.", "¡Enviado! Fijado instantáneamente en el panel de calificaciones de los alumnos.")}
+                {d(`Published to ${classGroupLabel(groupByCode(annGroupCode))} students.`, `Publicado para los estudiantes de ${classGroupLabel(groupByCode(annGroupCode))}.`)}
               </div>
+            )}
+            {annError && (
+              <p role="alert" className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-[11px] font-semibold">{annError}</p>
             )}
 
             <form onSubmit={handleCreateAnnouncement} className="space-y-3 pt-1 text-left w-full">
@@ -1275,16 +1291,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-bold">{d("Class Level", "Nivel de Clase")}</label>
-                  <select
-                    value={annLevel}
-                    onChange={(e) => setAnnLevel(e.target.value)}
-                    className="w-full bg-[#fafbfb] border border-slate-200 rounded-xl px-2 py-1.8 text-[11px] focus:outline-hidden text-slate-600 font-bold"
-                  >
-                    <option value="A1">{d("A1 Beginner", "A1 Principiante")}</option>
-                    <option value="A2">{d("A2 Elementary", "A2 Elemental")}</option>
-                    <option value="B1">{d("B1 Intermediate", "B1 Intermedio")}</option>
-                  </select>
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block font-bold">{d("School", "Escuela")}</label>
+                  {schoolSelect(annGroupCode, setAnnGroupCode, "w-full bg-[#fafbfb] border border-slate-200 rounded-xl px-2 py-1.8 text-[11px] focus:outline-hidden text-slate-600 font-bold")}
                 </div>
 
                 <div className="space-y-1">
@@ -1295,7 +1303,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                     className="w-full bg-[#fafbfb] border border-slate-200 rounded-xl px-2 py-1.8 text-[11px] focus:outline-hidden text-slate-600 font-bold"
                   >
                     <option value="info">{d("Info (Blue alert)", "Info (Alerta azul)")}</option>
-                    <option value="success font-bold">{d("Success (Green alert)", "Éxito (Alerta verde)")}</option>
+                    <option value="success">{d("Success (Green alert)", "Éxito (Alerta verde)")}</option>
                     <option value="important">{d("Important (Rose alert)", "Importante (Alerta rosa)")}</option>
                   </select>
                 </div>
@@ -1339,7 +1347,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
         {deleteError && (
           <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{deleteError}</p>
         )}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {[
             {
               kind: "class" as const,
@@ -1355,6 +1363,11 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               kind: "recording" as const,
               heading: d("Recordings", "Grabaciones"),
               items: myRecordings.map((rec) => ({ id: rec.id, title: rec.title, level: rec.course_level, classGroup: rec.class_group, detail: rec.date_recorded })),
+            },
+            {
+              kind: "announcement" as const,
+              heading: d("Announcements", "Anuncios"),
+              items: myAnnouncements.map((ann) => ({ id: ann.id, title: ann.title, level: ann.course_level, classGroup: ann.class_group, detail: ann.created_at ? new Date(ann.created_at).toLocaleDateString() : "" })),
             },
           ].map((column) => (
             <div key={column.kind} className="space-y-2 min-w-0">
