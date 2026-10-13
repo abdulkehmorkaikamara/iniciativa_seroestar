@@ -20,6 +20,7 @@ import {
 import LiveVideoRoom from "../LiveVideoRoom";
 import { useLiveChat } from "../useLiveChat";
 import { findTutorByEmail } from "../../tutors";
+import { CLASS_GROUPS, ClassGroup, classGroupLabel, classGroupValue, contentAudienceLabel, groupsForTutor } from "../../groups";
 
 interface TeacherDashboardProps {
   onExit: () => void;
@@ -29,12 +30,6 @@ interface TeacherDashboardProps {
   lang?: "EN" | "ES";
 }
 
-// This roster was never wired to a real backend endpoint — it rendered
-// the same five fake students (Sarah Jane, John Doe, etc.) permanently
-// for every tutor, including in the CSV export. No per-tutor roster/
-// attendance endpoint exists yet, so this now honestly starts empty
-// rather than pretend five students are enrolled.
-
 export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNote, onAddRecording, lang = "EN" }: TeacherDashboardProps) {
   const d = (en: string, es: string) => (lang === "ES" ? es : en);
   const tutor = findTutorByEmail(teacherProfile?.email);
@@ -42,20 +37,16 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const teacherDisplayName = teacherProfile?.displayName || tutor.displayName || teacherName;
   const teacherEmail = teacherProfile?.email || tutor.email;
 
-  // Local active courses assigned
-  const assignedLevels: string[] = teacherProfile?.assignedLevels || tutor.assignedLevels || ["A1", "A2"];
-  const assignedCourses = assignedLevels.map((level: string, index: number) => ({
-    code: index === 0 ? `${level}-G1` : `${level}-G${index + 1}`,
-    level: d(`${level} Spanish Group`, `Grupo de Español ${level}`),
-    time: index === 0 ? d("Tue/Thu 19:00 - 20:00", "Mar/Jue 19:00 - 20:00") : d("Saturday review block", "Bloque de repaso del sábado"),
-    count: index === 0 ? 12 : 10
-  }));
-  const defaultAssignedCourses = [
-    { code: "A1-M", level: d("A1 Beginner", "A1 Principiante"), time: d("Mon/Wed 09:00 - 10:30", "Lun/Miér 09:00 - 10:30"), count: 6 },
-    { code: "A2-E", level: d("A2 Elementary", "A2 Elemental"), time: d("Tue/Thu 18:30 - 20:00", "Mar/Jue 18:30 - 20:00"), count: 4 },
-    { code: "B1-W", level: d("B1 Intermediate", "B1 Intermedio"), time: d("Saturdays 10:00 - 13:00", "Sábados 10:00 - 13:00"), count: 5 }
-  ];
-  const visibleAssignedCourses = assignedCourses.length ? assignedCourses : defaultAssignedCourses;
+  // The schools this tutor publishes to; every form targets one of them.
+  const tutorGroups = groupsForTutor(teacherEmail);
+  const groupByCode = (code: string): ClassGroup => CLASS_GROUPS.find((g) => g.code === code) || tutorGroups[0];
+  const schoolSelect = (value: string, onChange: (code: string) => void, className: string) => (
+    <select aria-label={d("School", "Escuela")} value={value} onChange={(e) => onChange(e.target.value)} className={className}>
+      {tutorGroups.map((g) => (
+        <option key={g.code} value={g.code}>{classGroupLabel(g)} ({g.level})</option>
+      ))}
+    </select>
+  );
 
   // Live class list state
   const [scheduledClasses, setScheduledClasses] = useState<any[]>([]);
@@ -72,6 +63,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
           id: item.id,
           title: item.title,
           level: item.course_level,
+          classGroup: item.class_group,
           date: item.date_time,
           time: item.date_time,
           status: item.status,
@@ -94,7 +86,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
   // Input states
   const [newTitle, setNewTitle] = useState("");
-  const [newLevel, setNewLevel] = useState("A1");
+  const [newGroupCode, setNewGroupCode] = useState(tutorGroups[0].code);
+  const newGroup = groupByCode(newGroupCode);
   const [newDate, setNewDate] = useState("");
   const [newTime, setNewTime] = useState("");
   const [newMeetLink, setNewMeetLink] = useState("");
@@ -125,19 +118,30 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
   // Shared note uploads form
   const [noteTitle, setNoteTitle] = useState("");
-  const [noteLevel, setNoteLevel] = useState("A1");
+  const [noteGroupCode, setNoteGroupCode] = useState(tutorGroups[0].code);
   const [noteFile, setNoteFile] = useState<File | null>(null);
   const [noteUploadStatus, setNoteUploadStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Archive recording uploads form
   const [recTitle, setRecTitle] = useState("");
-  const [recLevel, setRecLevel] = useState("A1");
+  const [recGroupCode, setRecGroupCode] = useState(tutorGroups[0].code);
   const [recDescription, setRecDescription] = useState("");
   const [recVideoUrl, setRecVideoUrl] = useState("");
 
-  // Attendance filter
-  const [roster, setRoster] = useState<Array<{ id: string; code: string; name: string; level: string; present: number; absent: number; late: number; pct: number }>>([]);
+  // Attendance sheet for one school: students x classes, marked by hand or by joining live.
+  const [attendanceGroupCode, setAttendanceGroupCode] = useState(tutorGroups[0].code);
+  const [attendanceSheet, setAttendanceSheet] = useState<{ students: any[]; sessions: any[]; marks: Record<string, Record<string, string>> }>({ students: [], sessions: [], marks: {} });
+  const [attendanceError, setAttendanceError] = useState<string | null>(null);
   const [rosterSearch, setRosterSearch] = useState("");
+  const [pastTitle, setPastTitle] = useState("");
+  const [pastDate, setPastDate] = useState("");
+  const [pastTime, setPastTime] = useState("");
+
+  // Content this tutor has published, so it can be reviewed and deleted.
+  const [publishedRefreshKey, setPublishedRefreshKey] = useState(0);
+  const [myNotes, setMyNotes] = useState<any[]>([]);
+  const [myRecordings, setMyRecordings] = useState<any[]>([]);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Cohort announcement builder
   const [annTitle, setAnnTitle] = useState("");
@@ -178,16 +182,18 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   };
 
   // Create a class record; shared by scheduling and "Start class now".
-  const createClass = async (title: string, level: string, dateTime: string, meetingLink?: string) => {
+  const createClass = async (title: string, group: ClassGroup, dateTime: string, meetingLink?: string, completed = false) => {
     const response = await fetch("/api/live-sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title,
-        course_level: level,
+        course_level: group.level,
+        class_group: classGroupValue(group),
         teacher_name: teacherName,
         date_time: dateTime,
-        meeting_link: meetingLink || null
+        meeting_link: meetingLink || null,
+        completed
       })
     });
 
@@ -201,6 +207,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       id: created.id,
       title: created.title,
       level: created.course_level,
+      classGroup: created.class_group,
       date: created.date_time,
       time: created.date_time,
       status: created.status,
@@ -228,10 +235,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     }
 
     try {
-      const created = await createClass(newTitle, newLevel, `${newDate} ${newTime}`, newMeetLink.trim());
+      const created = await createClass(newTitle, newGroup, `${newDate} ${newTime}`, newMeetLink.trim());
       setScheduleStatus({
         type: "success",
-        message: d(`${created.title} was scheduled for ${created.level}.`, `${created.title} se programó para el nivel ${created.level}.`)
+        message: d(`${created.title} was scheduled for ${classGroupLabel(newGroup)}.`, `${created.title} se programó para ${classGroupLabel(newGroup)}.`)
       });
       setNewTitle("");
       setNewDate("");
@@ -273,8 +280,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     setStartingNow(true);
     try {
       const nowGmt = new Date().toISOString().slice(0, 16).replace("T", " ");
-      const title = newTitle.trim() || d(`${newLevel} live class`, `Clase en vivo ${newLevel}`);
-      const created = await createClass(title, newLevel, nowGmt, newMeetLink.trim());
+      const title = newTitle.trim() || d(`${classGroupLabel(newGroup)} live class`, `Clase en vivo ${classGroupLabel(newGroup)}`);
+      const created = await createClass(title, newGroup, nowGmt, newMeetLink.trim());
       setNewTitle("");
       setNewMeetLink("");
       await handleLaunchClass(created);
@@ -368,7 +375,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
     const formData = new FormData();
     formData.append("title", noteTitle);
-    formData.append("course_level", noteLevel);
+    const noteGroup = groupByCode(noteGroupCode);
+    formData.append("course_level", noteGroup.level);
+    formData.append("class_group", classGroupValue(noteGroup));
     formData.append("created_by", teacherName);
     formData.append("file", noteFile);
 
@@ -380,9 +389,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       }
 
       onAddSharedNote(payload);
+      setPublishedRefreshKey((key) => key + 1);
       setNoteUploadStatus({
         type: "success",
-        message: d(`Shared with ${noteLevel} students successfully.`, `Compartido correctamente con los estudiantes de ${noteLevel}.`)
+        message: d(`Shared with ${classGroupLabel(noteGroup)} students.`, `Compartido con los estudiantes de ${classGroupLabel(noteGroup)}.`)
       });
       setNoteTitle("");
       setNoteFile(null);
@@ -397,6 +407,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const handleAddRecordingRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recTitle || !recVideoUrl) return;
+    const recGroup = groupByCode(recGroupCode);
 
     const response = await fetch("/api/recordings/webhook", {
       method: "POST",
@@ -404,7 +415,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       body: JSON.stringify({
         title: recTitle,
         teacher_name: teacherName,
-        course_level: recLevel,
+        course_level: recGroup.level,
+        class_group: classGroupValue(recGroup),
         video_url: recVideoUrl,
         duration: "50 mins",
         description: recDescription || "Class discussion capture"
@@ -416,7 +428,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       id: created.id,
       title: recTitle,
       teacher: teacherName,
-      level: recLevel,
+      level: recGroup.level,
       date: new Date().toISOString().split("T")[0],
       duration: "50 mins",
       description: recDescription || "Class discussion capture",
@@ -424,21 +436,116 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     };
 
     onAddRecording(newRec); // propagate up
+    setPublishedRefreshKey((key) => key + 1);
     alert(d("Práctico! Recording successfully published inside the Student Recorded Class Archive.", "¡Práctico! Grabación publicada con éxito en el Archivo de Clases Grabadas del estudiante."));
     setRecTitle("");
     setRecDescription("");
     setRecVideoUrl("");
   };
 
+  useEffect(() => {
+    const group = groupByCode(attendanceGroupCode);
+    setAttendanceError(null);
+    fetch(`/api/tutor/group-attendance?course_level=${group.level}&class_group=${encodeURIComponent(classGroupValue(group))}`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setAttendanceSheet(data))
+      .catch(() => setAttendanceError(d("The attendance sheet could not be loaded.", "No se pudo cargar la hoja de asistencia.")));
+  }, [attendanceGroupCode, progressRefreshKey]);
+
+  const handleMarkAttendance = async (sessionId: number, studentCode: string, status: string) => {
+    const key = String(sessionId);
+    const previous = attendanceSheet.marks[key]?.[studentCode] || "";
+    const applyMark = (value: string) => setAttendanceSheet((sheet) => {
+      const sessionMarks = { ...(sheet.marks[key] || {}) };
+      if (value) sessionMarks[studentCode] = value; else delete sessionMarks[studentCode];
+      return { ...sheet, marks: { ...sheet.marks, [key]: sessionMarks } };
+    });
+    applyMark(status);
+    setAttendanceError(null);
+    const response = await fetch("/api/attendance/manual", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: sessionId, student_id_code: studentCode, status })
+    }).catch(() => null);
+    if (!response?.ok) {
+      applyMark(previous);
+      const payload = await response?.json().catch(() => null);
+      setAttendanceError(payload?.detail || d("That attendance mark could not be saved.", "No se pudo guardar esa asistencia."));
+    }
+  };
+
+  const handleAddPastClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pastDate || !pastTime) return;
+    setAttendanceError(null);
+    try {
+      await createClass(pastTitle.trim() || d("Class", "Clase"), groupByCode(attendanceGroupCode), `${pastDate} ${pastTime}`, undefined, true);
+      setPastTitle("");
+      setPastDate("");
+      setPastTime("");
+    } catch (error: any) {
+      setAttendanceError(error?.message || d("The class could not be added.", "No se pudo añadir la clase."));
+    }
+  };
+
+  useEffect(() => {
+    const isMine = (value?: string) => {
+      const normalized = (value || "").trim().toLowerCase();
+      return [teacherEmail, teacherName, teacherDisplayName].some((own) => own && own.toLowerCase() === normalized);
+    };
+    fetch("/api/lesson-notes")
+      .then((res) => res.ok ? res.json() : [])
+      .then((data) => setMyNotes(Array.isArray(data) ? data.filter((note: any) => isMine(note.created_by)) : []))
+      .catch(() => {});
+    fetch("/api/recordings")
+      .then((res) => res.ok ? res.json() : [])
+      .then((data) => setMyRecordings(Array.isArray(data) ? data.filter((rec: any) => isMine(rec.teacher_name)) : []))
+      .catch(() => {});
+  }, [publishedRefreshKey, teacherEmail, teacherName, teacherDisplayName]);
+
+  const handleDeletePublished = async (kind: "class" | "note" | "recording", item: any) => {
+    const warning = kind === "class"
+      ? d(`Delete the class "${item.title}"? Students will no longer see it, and its attendance marks are deleted too.`, `¿Eliminar la clase "${item.title}"? Los estudiantes ya no la verán y también se borrará su asistencia.`)
+      : d(`Delete "${item.title}"? Students will no longer see it.`, `¿Eliminar "${item.title}"? Los estudiantes ya no lo verán.`);
+    if (!window.confirm(warning)) return;
+    setDeleteError(null);
+    const url = kind === "class" ? `/api/live-sessions/${item.id}` : kind === "note" ? `/api/lesson-notes/${item.id}` : `/api/recordings/${item.id}`;
+    const response = await fetch(url, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setDeleteError(payload?.detail || d("It could not be deleted.", "No se pudo eliminar."));
+      return;
+    }
+    if (kind === "class") {
+      setScheduledClasses((prev) => prev.filter((cls) => cls.id !== item.id));
+      setProgressRefreshKey((key) => key + 1);
+    } else {
+      setPublishedRefreshKey((key) => key + 1);
+    }
+  };
+
+  const attendanceRows = attendanceSheet.students.map((student: any) => {
+    const statuses = attendanceSheet.sessions.map((session: any) => attendanceSheet.marks[String(session.id)]?.[student.student_id_code] || "");
+    const present = statuses.filter((value) => value === "Present").length;
+    const late = statuses.filter((value) => value === "Late").length;
+    const absent = statuses.filter((value) => value === "Absent").length;
+    const marked = present + late + absent;
+    return { ...student, statuses, present, late, absent, pct: marked ? Math.round(((present + late) / marked) * 100) : 0 };
+  });
+
   // Export Attendance CSV
   const handleExportAttendanceCSV = () => {
-    const headers = "Student ID,Student Code,Student Name,Level,Days Present,Days Absent,Days Late,Attendance % \n";
-    const rows = roster.map(r => `${r.id},${r.code},${r.name},${r.level},${r.present},${r.absent},${r.late},${r.pct}%`).join("\n");
+    const csvCell = (value: string) => `"${String(value).replace(/"/g, '""')}"`;
+    const sessionHeaders = attendanceSheet.sessions.map((session: any) => csvCell(`${session.title} (${session.date_time})`));
+    const headers = ["Student Code", "Student Name", ...sessionHeaders, "Present", "Late", "Absent", "Attendance %"].join(",") + "\n";
+    const rows = attendanceRows
+      .map((row) => [csvCell(row.student_id_code), csvCell(row.full_name), ...row.statuses.map(csvCell), row.present, row.late, row.absent, `${row.pct}%`].join(","))
+      .join("\n");
     const blob = new Blob([headers + rows], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `SeroEstar_Attendance_Report_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `SeroEstar_Attendance_${groupByCode(attendanceGroupCode).code}_${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
   };
 
@@ -453,9 +560,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     a.click();
   };
 
-  const filteredRoster = roster.filter(s =>
-    s.name.toLowerCase().includes(rosterSearch.toLowerCase()) ||
-    s.code.toLowerCase().includes(rosterSearch.toLowerCase())
+  const filteredRoster = attendanceRows.filter((row) =>
+    String(row.full_name).toLowerCase().includes(rosterSearch.toLowerCase()) ||
+    String(row.student_id_code).toLowerCase().includes(rosterSearch.toLowerCase())
   );
 
   const progressCards = [
@@ -681,17 +788,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
           <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Your Assigned Groups", "Tus Grupos Asignados")}</h3>
             <div className="space-y-3.5">
-              {visibleAssignedCourses.map(crs => (
-                <div key={crs.code} className="p-3 bg-slate-50 border border-slate-200/60 rounded-2xl flex justify-between items-center">
-                  <div className="space-y-0.5">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase">{crs.code}</span>
-                    <h4 className="font-bold text-slate-800 text-xs leading-none">{crs.level}</h4>
-                    <p className="text-[10px] font-mono text-slate-400">{crs.time}</p>
-                  </div>
-                  <div className="bg-teal-50 border border-teal-100 px-3 py-1.5 rounded-xl text-teal-800 text-center">
-                    <span className="block text-xs font-black font-mono leading-none">{crs.count}</span>
-                    <span className="text-[8px] font-bold uppercase tracking-wide">{d("Peers", "Alumnos")}</span>
-                  </div>
+              {tutorGroups.map(group => (
+                <div key={group.code} className="p-3 bg-slate-50 border border-slate-200/60 rounded-2xl">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">{d(`Level ${group.level}`, `Nivel ${group.level}`)}</span>
+                  <h4 className="font-bold text-slate-800 text-xs leading-none">{classGroupLabel(group)}</h4>
                 </div>
               ))}
             </div>
@@ -708,8 +808,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-emerald-50 border border-emerald-200 rounded-2xl">
                 <p className="text-[11px] text-emerald-900 font-semibold leading-snug">
                   {needsMeetLink
-                    ? d(`Start a ${newLevel} class right away. Paste its Google Meet link below first; the title is optional.`, `Inicia una clase de ${newLevel} ahora mismo. Primero pega abajo su enlace de Google Meet; el título es opcional.`)
-                    : d(`Start a ${newLevel} class right away. It uses the title below if you've typed one.`, `Inicia una clase de ${newLevel} ahora mismo. Usa el título de abajo si escribiste uno.`)}
+                    ? d(`Start a ${classGroupLabel(newGroup)} class right away. Paste its Google Meet link below first; the title is optional.`, `Inicia una clase de ${classGroupLabel(newGroup)} ahora mismo. Primero pega abajo su enlace de Google Meet; el título es opcional.`)
+                    : d(`Start a ${classGroupLabel(newGroup)} class right away. It uses the title below if you've typed one.`, `Inicia una clase de ${classGroupLabel(newGroup)} ahora mismo. Usa el título de abajo si escribiste uno.`)}
                 </p>
                 <button
                   type="button"
@@ -729,7 +829,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                     <div className="space-y-0.5">
                       <div className="flex items-center space-x-1.5 flex-wrap gap-1">
                         <span className="text-[9px] font-bold bg-orange-100 text-orange-700 px-2.5 py-0.2 rounded-full font-mono">
-                          {cls.level}
+                          {cls.level} · {contentAudienceLabel(cls.level, cls.classGroup)}
                         </span>
                         <span className="text-[10px] font-mono text-slate-400">{cls.date} GMT</span>
                       </div>
@@ -819,16 +919,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                 />
               </div>
               <div className="sm:col-span-1">
-                <select
-                  aria-label={d("Course level", "Nivel del curso")}
-                  value={newLevel}
-                  onChange={(e) => setNewLevel(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.8 text-xs text-slate-600 font-bold focus:outline-hidden"
-                >
-                  {assignedLevels.map((level) => (
-                    <option key={level} value={level}>{d(`${level} Level`, `Nivel ${level}`)}</option>
-                  ))}
-                </select>
+                {schoolSelect(newGroupCode, setNewGroupCode, "w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.8 text-xs text-slate-600 font-bold focus:outline-hidden")}
               </div>
               <div className="sm:col-span-1">
                 <input
@@ -897,13 +988,14 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       {/* Grid Middle: 1. Attendance Roster list, 2. Materials Uploader */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Automatic Attendance report viewer */}
-        <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
+        {/* Attendance sheet: one school at a time, marks editable by the tutor */}
+        <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4 min-w-0">
           <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-wrap gap-2">
             <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">
-              {d("Automatic Attendance Roster Logs", "Registros de Asistencia Automática")}
+              {d("Attendance", "Asistencia")}
             </h3>
-            <div className="flex space-x-2 shrink-0">
+            <div className="flex flex-wrap gap-2">
+              {schoolSelect(attendanceGroupCode, setAttendanceGroupCode, "bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 focus:outline-hidden")}
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
@@ -919,50 +1011,110 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                 className="px-3.5 py-1.5 bg-teal-50 hover:bg-teal-150 border border-teal-200/60 rounded-xl text-teal-800 font-bold font-sans text-[11px] cursor-pointer transition flex items-center"
               >
                 <FileDown size={12} className="mr-1.5" />
-                <span>{d("Export CSV Report", "Exportar Reporte CSV")}</span>
+                <span>{d("Export CSV", "Exportar CSV")}</span>
               </button>
             </div>
           </div>
 
-          <div className="overflow-x-auto max-h-[220px] overflow-y-auto">
+          <form onSubmit={handleAddPastClass} className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end">
+            <input
+              type="text"
+              placeholder={d("Past class title (optional)", "Título de la clase pasada (opcional)")}
+              value={pastTitle}
+              onChange={(e) => setPastTitle(e.target.value)}
+              className="col-span-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
+            />
+            <input
+              type="date"
+              required
+              aria-label={d("Date of the past class", "Fecha de la clase pasada")}
+              max={new Date().toISOString().split("T")[0]}
+              value={pastDate}
+              onChange={(e) => setPastDate(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500 focus:outline-hidden"
+            />
+            <input
+              type="time"
+              required
+              aria-label={d("Time of the past class (GMT)", "Hora de la clase pasada (GMT)")}
+              value={pastTime}
+              onChange={(e) => setPastTime(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500 focus:outline-hidden"
+            />
+            <button
+              type="submit"
+              className="col-span-2 sm:col-span-1 inline-flex justify-center items-center py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition cursor-pointer"
+            >
+              <Plus size={13} className="mr-1" />
+              {d("Add past class", "Añadir clase pasada")}
+            </button>
+          </form>
+
+          {attendanceError && (
+            <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{attendanceError}</p>
+          )}
+
+          <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
             <table className="w-full text-left font-sans text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
-                  <th className="p-3">{d("ID Code", "Código ID")}</th>
-                  <th className="p-3">{d("Student Name", "Nombre del Estudiante")}</th>
-                  <th className="p-3">{d("Level Enrolled", "Nivel Inscrito")}</th>
-                  <th className="p-3 text-center">{d("Days Present", "Días Presente")}</th>
-                  <th className="p-3 text-center">{d("Days Absent", "Días Ausente")}</th>
-                  <th className="p-3 text-center">{d("Late Sessions", "Llegadas Tarde")}</th>
-                  <th className="p-3 text-right">{d("Attendance Rate", "Tasa de Asistencia")}</th>
+                  <th className="p-3 sticky left-0 bg-slate-50">{d("Student", "Estudiante")}</th>
+                  {attendanceSheet.sessions.map((session: any) => (
+                    <th key={session.id} className="p-3 text-center whitespace-nowrap normal-case">
+                      <span className="block text-slate-600">{session.title}</span>
+                      <span className="block font-mono font-semibold">{session.date_time}</span>
+                    </th>
+                  ))}
+                  <th className="p-3 text-right">{d("Rate", "Tasa")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRoster.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-6 text-center text-xs text-slate-400 font-semibold">
-                      {d("No attendance records yet.", "Aún no hay registros de asistencia.")}
+                    <td colSpan={attendanceSheet.sessions.length + 2} className="p-6 text-center text-xs text-slate-400 font-semibold">
+                      {attendanceSheet.students.length === 0
+                        ? d("No students are registered in this school's group yet.", "Aún no hay estudiantes registrados en el grupo de esta escuela.")
+                        : d("No students match your search.", "Ningún estudiante coincide con tu búsqueda.")}
                     </td>
                   </tr>
                 )}
-                {filteredRoster.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-3 font-mono text-[10px] font-bold text-teal-700">{item.code}</td>
-                    <td className="p-3 font-semibold text-slate-800">{item.name}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 bg-slate-100 rounded-sm font-mono text-[9px] font-bold text-slate-500">
-                        {d("Level", "Nivel")} {item.level}
-                      </span>
+                {filteredRoster.map((row) => (
+                  <tr key={row.student_id_code} className="hover:bg-slate-50">
+                    <td className="p-3 sticky left-0 bg-white">
+                      <span className="block font-semibold text-slate-800 whitespace-nowrap">{row.full_name}</span>
+                      <span className="block font-mono text-[10px] font-bold text-teal-700">{row.student_id_code}</span>
                     </td>
-                    <td className="p-3 text-center font-mono text-slate-650">{item.present}</td>
-                    <td className="p-3 text-center font-mono text-slate-650">{item.absent}</td>
-                    <td className="p-3 text-center font-mono text-slate-650">{item.late}</td>
-                    <td className="p-3 text-right font-mono font-extrabold text-teal-700">{item.pct}%</td>
+                    {attendanceSheet.sessions.map((session: any, index: number) => (
+                      <td key={session.id} className="p-2 text-center">
+                        <select
+                          aria-label={d(`${row.full_name}, ${session.title}`, `${row.full_name}, ${session.title}`)}
+                          value={row.statuses[index]}
+                          onChange={(e) => handleMarkAttendance(session.id, row.student_id_code, e.target.value)}
+                          className={`rounded-lg border px-1.5 py-1 text-[11px] font-bold focus:outline-hidden ${
+                            row.statuses[index] === "Present" ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : row.statuses[index] === "Late" ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : row.statuses[index] === "Absent" ? "border-rose-200 bg-rose-50 text-rose-700"
+                              : "border-slate-200 bg-white text-slate-400"
+                          }`}
+                        >
+                          <option value="">–</option>
+                          <option value="Present">{d("Present", "Presente")}</option>
+                          <option value="Late">{d("Late", "Tarde")}</option>
+                          <option value="Absent">{d("Absent", "Ausente")}</option>
+                        </select>
+                      </td>
+                    ))}
+                    <td className="p-3 text-right font-mono font-extrabold text-teal-700">{row.pct}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {attendanceSheet.sessions.length === 0 && (
+            <p className="text-[11px] text-slate-400 font-semibold">
+              {d("No classes for this school yet. Add the classes you've already taught with \"Add past class\", then mark each student.", "Aún no hay clases para esta escuela. Añade las clases que ya diste con \"Añadir clase pasada\" y marca a cada estudiante.")}
+            </p>
+          )}
         </div>
 
         {/* Note Lesson publishing */}
@@ -989,17 +1141,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
 
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">{d("Level Segment", "Nivel de Destino")}</label>
-                <select
-                  value={noteLevel}
-                  onChange={(e) => setNoteLevel(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs focus:outline-hidden text-slate-600 font-bold"
-                >
-                  <option value="A1">{d("A1 Beginner", "A1 Principiante")}</option>
-                  <option value="A2">{d("A2 Elementary", "A2 Elemental")}</option>
-                  <option value="B1">{d("B1 Intermediate", "B1 Intermedio")}</option>
-                  <option value="All">{d("All Students", "Todos los Alumnos")}</option>
-                </select>
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">{d("School", "Escuela")}</label>
+                {schoolSelect(noteGroupCode, setNoteGroupCode, "w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs focus:outline-hidden text-slate-600 font-bold")}
               </div>
 
               <div className="space-y-1">
@@ -1067,16 +1210,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               />
             </div>
             <div className="space-y-1 text-left">
-              <label className="text-[10px] font-bold text-slate-400 uppercase block">{d("Course Level Target", "Nivel de Curso Destino")}</label>
-              <select
-                value={recLevel}
-                onChange={(e) => setRecLevel(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs focus:outline-hidden text-slate-600 font-bold"
-              >
-                <option value="A1">{d("Level A1", "Nivel A1")}</option>
-                <option value="A2">{d("Level A2", "Nivel A2")}</option>
-                <option value="B1">{d("Level B1", "Nivel B1")}</option>
-              </select>
+              <label className="text-[10px] font-bold text-slate-400 uppercase block">{d("School", "Escuela")}</label>
+              {schoolSelect(recGroupCode, setRecGroupCode, "w-full bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs focus:outline-hidden text-slate-600 font-bold")}
             </div>
             <div className="space-y-1 text-left font-sans">
               <label className="text-[10px] font-bold text-slate-400 uppercase block">{d("Archive Actions", "Acciones de Archivo")}</label>
@@ -1187,6 +1322,69 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
               </button>
             </form>
           </div>
+        </div>
+      </div>
+
+      {/* MY PUBLISHED CONTENT: review and delete what students can see */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4 text-left">
+        <div className="pb-3 border-b border-slate-100">
+          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center">
+            <Layers size={15} className="text-teal-600 mr-1.5" />
+            <span>{d("My Published Content", "Mi Contenido Publicado")}</span>
+          </h3>
+          <p className="text-[11px] text-slate-400 font-semibold mt-1">
+            {d("Everything you've published, by school. Delete an item and students stop seeing it.", "Todo lo que has publicado, por escuela. Si eliminas algo, los estudiantes dejan de verlo.")}
+          </p>
+        </div>
+        {deleteError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{deleteError}</p>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            {
+              kind: "class" as const,
+              heading: d("Classes", "Clases"),
+              items: scheduledClasses.map((cls) => ({ id: cls.id, title: cls.title, level: cls.level, classGroup: cls.classGroup, detail: `${cls.date} GMT` })),
+            },
+            {
+              kind: "note" as const,
+              heading: d("Notes & files", "Notas y archivos"),
+              items: myNotes.map((note) => ({ id: note.id, title: note.title, level: note.course_level, classGroup: note.class_group, detail: note.file_type })),
+            },
+            {
+              kind: "recording" as const,
+              heading: d("Recordings", "Grabaciones"),
+              items: myRecordings.map((rec) => ({ id: rec.id, title: rec.title, level: rec.course_level, classGroup: rec.class_group, detail: rec.date_recorded })),
+            },
+          ].map((column) => (
+            <div key={column.kind} className="space-y-2 min-w-0">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{column.heading} ({column.items.length})</h4>
+              {column.items.length === 0 && (
+                <p className="text-[11px] text-slate-400 font-semibold">{d("Nothing published yet.", "Aún no hay nada publicado.")}</p>
+              )}
+              <div className="space-y-2 max-h-[260px] overflow-y-auto">
+                {column.items.map((item) => (
+                  <div key={item.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-[9px] font-bold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                        {contentAudienceLabel(item.level, item.classGroup)}
+                      </span>
+                      <h5 className="font-bold text-xs text-slate-800 mt-1 break-words">{item.title}</h5>
+                      {item.detail && <p className="text-[10px] font-mono text-slate-400">{item.detail}</p>}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePublished(column.kind, item)}
+                      aria-label={d(`Delete ${item.title}`, `Eliminar ${item.title}`)}
+                      className="p-2 rounded-xl text-rose-600 hover:bg-rose-50 transition cursor-pointer shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

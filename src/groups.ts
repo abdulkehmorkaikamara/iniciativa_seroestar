@@ -43,3 +43,31 @@ export function groupOptionsForLevel(courseLevel?: string) {
   if (groups.length === 0) return [{ value: "Group 1", label: "Group 1" }];
   return groups.map((g) => ({ value: `Group ${g.group}`, label: classGroupLabel(g) }));
 }
+
+// The value stored in class_group for a school's group.
+export function classGroupValue(group: ClassGroup) {
+  return `Group ${group.group}`;
+}
+
+export function groupsForTutor(email?: string) {
+  const own = CLASS_GROUPS.filter((g) => g.tutorEmail.toLowerCase() === (email || "").toLowerCase());
+  return own.length ? own : CLASS_GROUPS;
+}
+
+// School label for a published item; items without a group go to the whole level.
+export function contentAudienceLabel(courseLevel?: string, classGroup?: string | null) {
+  if (!classGroup) return `All ${courseLevel || ""} schools`.replace("  ", " ");
+  const group = findClassGroup(courseLevel, classGroup);
+  return group ? classGroupLabel(group) : `${courseLevel} ${classGroup}`;
+}
+
+// Whether a class, note or recording published for a level/group reaches a student.
+export function contentReachesStudent(
+  content: { course_level?: string; class_group?: string | null },
+  student: { courseLevel?: string; classGroup?: string }
+) {
+  const level = (value?: string) => value?.match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
+  const contentLevel = content.course_level === "All" ? undefined : level(content.course_level);
+  if (contentLevel && level(student.courseLevel) && contentLevel !== level(student.courseLevel)) return false;
+  return !content.class_group || groupNumberFrom(content.class_group) === groupNumberFrom(student.classGroup);
+}

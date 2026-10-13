@@ -33,7 +33,7 @@ import LiveVideoRoom from "../LiveVideoRoom";
 import { useLiveChat } from "../useLiveChat";
 import AdaptiveLessonPlayer from "../AdaptiveLessonPlayer";
 import { TUTOR_PROFILES } from "../../tutors";
-import { findClassGroup, classGroupLabel } from "../../groups";
+import { findClassGroup, classGroupLabel, contentReachesStudent } from "../../groups";
 
 interface StudentProfile {
   fullName: string;
@@ -298,7 +298,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
           const matchingSessions = sessions
             .filter((item: any) => {
               const sessionLevel = String(item.course_level || "").match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
-              return (!courseLevelCode || sessionLevel === courseLevelCode) && taughtByGroupTutor(item.teacher_name) && (item.status === "Live" || item.status === "Scheduled");
+              return (!courseLevelCode || sessionLevel === courseLevelCode) && contentReachesStudent(item, student) && taughtByGroupTutor(item.teacher_name) && (item.status === "Live" || item.status === "Scheduled");
             })
             .sort((a: any, b: any) => Number(b.status === "Live") - Number(a.status === "Live"));
           const upcoming = matchingSessions[0];
@@ -604,7 +604,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     const matchesSearch = title.toLowerCase().includes(recSearch.toLowerCase()) || teacher.toLowerCase().includes(recSearch.toLowerCase());
     const matchesLevel = recLevel === "All" || level === recLevel;
     const matchesEnrollment = !enrolledLevel || level === enrolledLevel;
-    return matchesSearch && matchesLevel && matchesEnrollment && taughtByGroupTutor(teacher);
+    return matchesSearch && matchesLevel && matchesEnrollment && contentReachesStudent(rec, student) && taughtByGroupTutor(teacher);
   });
 
   const visibleAnnouncements = announcements.filter(
@@ -616,7 +616,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const visibleSharedNotes = sharedNotes.filter((note: any) => {
     const studentLevel = student.courseLevel?.match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
     const noteLevel = note.course_level || note.courseLevel;
-    return (noteLevel === "All" || !studentLevel || noteLevel === studentLevel) && !createdByOtherTutor(note.created_by);
+    return (noteLevel === "All" || !studentLevel || noteLevel === studentLevel) && contentReachesStudent(note, student) && !createdByOtherTutor(note.created_by);
   });
 
   const updateLessonProgress = async (lessonId: number, percentWatched: number, lastPositionSeconds: number, completed: boolean) => {

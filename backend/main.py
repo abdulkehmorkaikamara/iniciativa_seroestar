@@ -24,6 +24,7 @@ from .live_utils import build_room_details
 from . import meet, google_accounts, google_workspace
 from .storage import store_upload
 from .tutors import TUTOR_PROFILES, find_tutor_by_email, find_tutor_by_name
+from .groups import group_number, content_in_group
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 
@@ -408,7 +409,23 @@ def _course_level_code(value: str | None) -> str:
 
 
 def _student_in_session_level(student: models.StudentProfile, session: models.LiveClassSession) -> bool:
-    return _course_level_code(student.course_level) == _course_level_code(session.course_level)
+    return (
+        _course_level_code(student.course_level) == _course_level_code(session.course_level)
+        and content_in_group(session.class_group, student.class_group)
+    )
+
+
+def _normalize_class_group(value: str | None) -> str | None:
+    """Store a school's group as "Group N"; blank means the whole level."""
+    if not (value or "").strip():
+        return None
+    return f"Group {group_number(value)}"
+
+
+def _tutor_owns_name(payload: dict, name: str | None, db: Session) -> bool:
+    if payload.get("role") == roles.DEVELOPER:
+        return True
+    return _normalize_teacher_name(name) in _tutor_names_for(payload, db)
 
 
 def _student_can_join_session(student: models.StudentProfile, session: models.LiveClassSession) -> bool:
@@ -1108,8 +1125,11 @@ def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db
     auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
     if auth_payload.get("role") == roles.TUTOR and _normalize_teacher_name(payload.teacher_name) not in _tutor_names_for(auth_payload, db):
         raise HTTPException(status_code=403, detail="Tutors can only schedule classes under their own name.")
-    if not _parse_session_datetime(payload.date_time):
+    scheduled_at = _parse_session_datetime(payload.date_time)
+    if not scheduled_at:
         raise HTTPException(status_code=400, detail="Enter the class date and time as YYYY-MM-DD HH:MM (Sierra Leone time).")
+    if payload.completed and scheduled_at > datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="A past class must have a date and time that has already passed.")
     provider = meet.live_provider()
     meeting_link = None
     if provider == "meet" and (payload.meeting_link or "").strip():
@@ -1119,12 +1139,17 @@ def create_live_session(payload: schemas.LiveSessionCreate, request: Request, db
     session = models.LiveClassSession(
         title=payload.title,
         course_level=payload.course_level,
+        class_group=_normalize_class_group(payload.class_group),
         teacher_name=payload.teacher_name,
         date_time=payload.date_time.strip(),
         meeting_link=meeting_link,
         provider=provider,
         status="Scheduled"
     )
+    if payload.completed:
+        session.status = "Completed"
+        session.started_at = scheduled_at
+        session.ended_at = scheduled_at + timedelta(hours=1)
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -1428,6 +1453,7 @@ async def upload_lesson_note(
     course_level: str = Form(...),
     created_by: str = Form(...),
     file: UploadFile = File(...),
+    class_group: str | None = Form(None),
     db: Session = Depends(get_db),
 ):
     auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
@@ -1454,6 +1480,7 @@ async def upload_lesson_note(
     note = models.LessonNote(
         title=title.strip(),
         course_level=normalized_level,
+        class_group=_normalize_class_group(class_group),
         file_url=file_url,
         file_type=extension.lstrip(".").upper(),
         shared_with_students=True,
@@ -1493,6 +1520,7 @@ def create_recording_from_webhook(payload: dict, request: Request, db: Session =
         title=payload.get("title") or payload.get("session_title") or (session.title if session else "Recorded class"),
         teacher_name=payload.get("teacher_name") or (session.teacher_name if session else "Instructor"),
         course_level=payload.get("course_level") or (session.course_level if session else "A1"),
+        class_group=_normalize_class_group(payload.get("class_group")) or (session.class_group if session else None),
         date_recorded=payload.get("date_recorded") or datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         video_url=video_url,
         duration=payload.get("duration") or "45 mins",
@@ -1505,6 +1533,141 @@ def create_recording_from_webhook(payload: dict, request: Request, db: Session =
     db.commit()
     db.refresh(recording)
     return recording
+
+
+@app.delete("/api/live-sessions/{session_id}")
+def delete_live_session(session_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Class session not found.")
+    _require_session_owner(auth_payload, session, db)
+    db.query(models.AttendanceRecord).filter(models.AttendanceRecord.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.ChatMessage).filter(models.ChatMessage.session_id == session_id).delete(synchronize_session=False)
+    db.query(models.RecordedClass).filter(models.RecordedClass.session_id == session_id).update(
+        {models.RecordedClass.session_id: None}, synchronize_session=False
+    )
+    db.delete(session)
+    db.commit()
+    return {"detail": "Class deleted"}
+
+
+@app.delete("/api/lesson-notes/{note_id}")
+def delete_lesson_note(note_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    note = db.query(models.LessonNote).filter(models.LessonNote.id == note_id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Shared note not found.")
+    own_email = str(auth_payload.get("sub") or "").strip().lower()
+    if not (_tutor_owns_name(auth_payload, note.created_by, db) or (own_email and (note.created_by or "").strip().lower() == own_email)):
+        raise HTTPException(status_code=403, detail="You can only delete notes you shared.")
+    db.delete(note)
+    db.commit()
+    return {"detail": "Note deleted"}
+
+
+@app.delete("/api/recordings/{recording_id}")
+def delete_recording(recording_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    recording = db.query(models.RecordedClass).filter(models.RecordedClass.id == recording_id).first()
+    if not recording:
+        raise HTTPException(status_code=404, detail="Recording not found.")
+    if not _tutor_owns_name(auth_payload, recording.teacher_name, db):
+        raise HTTPException(status_code=403, detail="You can only delete recordings you published.")
+    db.delete(recording)
+    db.commit()
+    return {"detail": "Recording deleted"}
+
+
+@app.get("/api/tutor/group-attendance")
+def get_group_attendance(course_level: str, class_group: str, request: Request, db: Session = Depends(get_db)):
+    """Attendance sheet for one school's group: its students, classes and marks."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(course_level)
+    students = [
+        student
+        for student in db.query(models.StudentProfile).all()
+        if _course_level_code(student.course_level) == level and group_number(student.class_group) == group_number(class_group)
+    ]
+    sessions = [
+        session
+        for session in db.query(models.LiveClassSession).all()
+        if _course_level_code(session.course_level) == level
+        and content_in_group(session.class_group, class_group)
+        and _tutor_owns_name(auth_payload, session.teacher_name, db)
+    ]
+    sessions.sort(key=lambda session: _session_scheduled_at(session) or datetime.max.replace(tzinfo=timezone.utc))
+    session_ids = [session.id for session in sessions]
+    marks: dict[str, dict[str, str]] = {}
+    if session_ids:
+        records = db.query(models.AttendanceRecord).filter(
+            models.AttendanceRecord.session_id.in_(session_ids)
+        ).order_by(models.AttendanceRecord.id).all()
+        for record in records:
+            marks.setdefault(str(record.session_id), {})[record.student_code] = record.status
+    return {
+        "students": [
+            {
+                "student_id_code": student.student_id_code,
+                "full_name": student.user.full_name if student.user else student.student_id_code,
+            }
+            for student in sorted(students, key=lambda s: ((s.user.full_name if s.user else "") or s.student_id_code).lower())
+        ],
+        "sessions": [
+            {"id": session.id, "title": session.title, "date_time": session.date_time, "status": session.status, "class_group": session.class_group}
+            for session in sessions
+        ],
+        "marks": marks,
+    }
+
+
+@app.put("/api/attendance/manual")
+def set_manual_attendance(payload: schemas.ManualAttendanceUpdate, request: Request, db: Session = Depends(get_db)):
+    """Let a class's tutor mark a student Present, Late or Absent by hand."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    session = db.query(models.LiveClassSession).filter(models.LiveClassSession.id == payload.session_id).first()
+    if not session:
+        raise HTTPException(status_code=404, detail="Class session not found.")
+    _require_session_owner(auth_payload, session, db)
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.student_id_code == payload.student_id_code).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    if not _student_in_session_level(student, session):
+        raise HTTPException(status_code=400, detail="This student is not in this class's group.")
+
+    new_status = (payload.status or "").strip().capitalize()
+    if new_status and new_status not in {"Present", "Late", "Absent"}:
+        raise HTTPException(status_code=400, detail="Status must be Present, Late or Absent.")
+
+    records = db.query(models.AttendanceRecord).filter(
+        models.AttendanceRecord.student_id == student.id,
+        models.AttendanceRecord.session_id == session.id,
+    ).order_by(models.AttendanceRecord.id).all()
+    if not new_status:
+        for record in records:
+            db.delete(record)
+        db.commit()
+        return {"session_id": session.id, "student_id_code": student.student_id_code, "status": None}
+
+    if records:
+        # One mark per student per class: keep the first record, drop rejoin duplicates.
+        record = records[0]
+        for duplicate in records[1:]:
+            db.delete(duplicate)
+    else:
+        user = db.query(models.User).filter(models.User.id == student.user_id).first()
+        record = models.AttendanceRecord(
+            student_id=student.id,
+            student_name=user.full_name if user else student.student_id_code,
+            student_code=student.student_id_code,
+            course_level=student.course_level,
+            session_id=session.id,
+            total_minutes=0,
+        )
+        db.add(record)
+    record.status = new_status
+    db.commit()
+    return {"session_id": session.id, "student_id_code": student.student_id_code, "status": new_status}
 
 
 @app.get("/api/courses", response_model=List[schemas.CourseResponse])

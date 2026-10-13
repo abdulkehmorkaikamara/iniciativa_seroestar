@@ -60,6 +60,7 @@ class LiveClassSession(Base):
     title = Column(String(255), nullable=False)
     course_level = Column(String(50), nullable=False) # A1, A2, B1
     teacher_name = Column(String(255), nullable=False)
+    class_group = Column(String(50), nullable=True) # "Group 1"... NULL = every group at the level
     date_time = Column(String(100), nullable=False)
     meeting_link = Column(String(255), nullable=True)
     status = Column(String(50), default="Scheduled") # Scheduled, Live, Completed
@@ -113,6 +114,7 @@ class LessonNote(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     course_level = Column(String(50), nullable=False) # A1, A2, B1, All
+    class_group = Column(String(50), nullable=True) # NULL = every group at the level
     file_url = Column(String(255), nullable=False)
     file_type = Column(String(50), nullable=False) # PDF, DOCX, PNG
     shared_with_students = Column(Boolean, default=True)
@@ -127,6 +129,7 @@ class RecordedClass(Base):
     title = Column(String(255), nullable=False)
     teacher_name = Column(String(255), nullable=False)
     course_level = Column(String(50), nullable=False) # A1, A2, B1
+    class_group = Column(String(50), nullable=True) # NULL = every group at the level
     date_recorded = Column(String(100), nullable=False)
     video_url = Column(String(500), nullable=False)
     duration = Column(String(50), nullable=False) # e.g. "55 mins"
