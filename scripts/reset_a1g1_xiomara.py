@@ -42,7 +42,7 @@ def row_to_dict(row):
 def is_a1g1(student):
     level = (student.course_level or "").upper()
     group = (student.class_group or "").lower()
-    in_other_group = bool(re.search(r"\b[23]\b", group)) or "evening" in group
+    in_other_group = bool(re.search(r"\b([2-9]|\d\d+)\b", group)) or "evening" in group
     return "A1" in level and not in_other_group
 
 

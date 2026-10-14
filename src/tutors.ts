@@ -30,7 +30,7 @@ export const TUTOR_PROFILES: TutorProfile[] = [
   }
 ];
 
-// Ivoneth teaches all three active groups (A1G1, A1G2, A2G1), so she is the default tutor.
+// Ivoneth teaches all four schools (A1G1-A1G4), so she is the default tutor.
 export const DEFAULT_TUTOR = TUTOR_PROFILES[0];
 
 export function findTutorByEmail(email?: string) {

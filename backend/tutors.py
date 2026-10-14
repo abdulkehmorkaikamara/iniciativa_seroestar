@@ -1,4 +1,4 @@
-# Ivoneth teaches all three active groups (A1G1, A1G2, A2G1); the first entry is the default tutor.
+# Ivoneth teaches all four schools (A1G1-A1G4); the first entry is the default tutor.
 TUTOR_PROFILES = [
     {
         "id": "ivoneth-frias",
