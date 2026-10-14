@@ -1,5 +1,6 @@
 """Per-school publishing, deleting published content and hand-marked attendance."""
 
+import unittest
 from datetime import datetime, timedelta, timezone
 
 from backend.tests.test_live_sessions import DEVELOPER, STUDENT, TUTOR, _LiveSessionTestCase
@@ -133,3 +134,16 @@ class AnnouncementTests(_LiveSessionTestCase):
         self.assertEqual(self.client.delete(f"/api/announcements/{mine['id']}", headers=headers).status_code, 200)
         remaining = [a["id"] for a in self.client.get("/api/announcements", headers=self._headers(STUDENT)).json()]
         self.assertEqual(remaining, [other["id"]])
+
+
+class GroupNumberTests(unittest.TestCase):
+    def test_parses_any_group_number_and_legacy_values(self):
+        from backend.groups import content_in_group, group_number
+
+        self.assertEqual(group_number("Group 4"), 4)
+        self.assertEqual(group_number("Group 12"), 12)
+        self.assertEqual(group_number("Morning Group"), 1)
+        self.assertEqual(group_number("Evening"), 2)
+        self.assertEqual(group_number(None), 1)
+        self.assertTrue(content_in_group("Group 4", "Group 4"))
+        self.assertFalse(content_in_group("Group 4", "Group 1"))
