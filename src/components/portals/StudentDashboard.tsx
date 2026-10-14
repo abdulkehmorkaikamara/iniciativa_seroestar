@@ -33,6 +33,7 @@ import LiveVideoRoom from "../LiveVideoRoom";
 import { useLiveChat } from "../useLiveChat";
 import AdaptiveLessonPlayer from "../AdaptiveLessonPlayer";
 import { TUTOR_PROFILES } from "../../tutors";
+import { findClassGroup, classGroupLabel, contentReachesStudent } from "../../groups";
 
 interface StudentProfile {
   fullName: string;
@@ -51,21 +52,7 @@ interface StudentDashboardProps {
   lang?: "EN" | "ES";
 }
 
-// Real, bundled A1 example lesson recording — kept (unlike the shared-notes
-// placeholders removed below) because its video file genuinely exists at
-// public/videos/, matching the README's documented example-video feature.
-const INITIAL_RECORDINGS: any[] = [
-  {
-    id: "a1-describir-personas-objetos",
-    title: "Describir personas y objetos",
-    teacher_name: "Xiomara Villamizar",
-    course_level: "A1",
-    date_recorded: "2026-07-13",
-    duration: "7 mins",
-    description: "Ejemplo práctico de nivel A1 para aprender a describir personas y objetos en español.",
-    video_url: "/videos/describir-personas-y-objetos-a1.mp4"
-  }
-];
+const INITIAL_RECORDINGS: any[] = [];
 
 type WelcomeLetterSession = {
   time: string;
@@ -121,11 +108,9 @@ const WELCOME_LETTERS: Record<string, WelcomeLetterConfig> = {
 };
 
 function getWelcomeLetter(courseLevel: string, classGroup: string) {
-  const level = courseLevel?.match(/\b(A1|A2)\b/i)?.[1]?.toUpperCase();
-  if (!level) return null;
-  const groupText = classGroup || "";
-  const group = /(?:group|grupo|g)[\s-]*2\b/i.test(groupText) || /evening/i.test(groupText) ? 2 : 1;
-  return WELCOME_LETTERS[`${level}-G${group}`] || WELCOME_LETTERS[`${level}-G1`] || null;
+  const classGroupInfo = findClassGroup(courseLevel, classGroup);
+  if (!classGroupInfo) return null;
+  return WELCOME_LETTERS[`${classGroupInfo.level}-G${classGroupInfo.group}`] || null;
 }
 
 export default function StudentDashboard({ onExit, registeredStudent, onOpenChatbot, lang = "EN" }: StudentDashboardProps) {
@@ -148,6 +133,23 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     learningMode: "Online"
   };
   const welcomeLetter = getWelcomeLetter(student.courseLevel, student.classGroup);
+  const classGroupInfo = findClassGroup(student.courseLevel, student.classGroup);
+  // Students only see the tutor assigned to their group.
+  const groupTutorEmail = (classGroupInfo?.tutorEmail || "ivoneth@seroestar.com").toLowerCase();
+  const isGroupTutor = (tutor: { email?: string }) => (tutor.email || "").toLowerCase() === groupTutorEmail;
+  const groupTutorProfile = TUTOR_PROFILES.find(isGroupTutor);
+  const groupTutorNames = new Set(
+    [groupTutorProfile?.name, groupTutorProfile?.displayName]
+      .filter(Boolean)
+      .map((name) => String(name).trim().toLowerCase().replace(/^tutora? /, ""))
+  );
+  const taughtByGroupTutor = (teacherName?: string) =>
+    groupTutorNames.has(String(teacherName || "").trim().toLowerCase().replace(/^tutora? /, ""));
+  const createdByOtherTutor = (author?: string) => {
+    const value = String(author || "").trim().toLowerCase().replace(/^tutora? /, "");
+    return TUTOR_PROFILES.some((tutor) => !isGroupTutor(tutor) &&
+      [tutor.email, tutor.name, tutor.displayName].some((v) => v.toLowerCase().replace(/^tutora? /, "") === value));
+  };
 
   // Student portal tabs: 'lessons' | 'grades-assignments' | 'message-instructors'
   const [activeTab, setActiveTab ] = useState<"lessons" | "grades-assignments" | "message-instructors">("lessons");
@@ -161,20 +163,8 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [newNoteContent, setNewNoteContent] = useState("");
   const [personalNotesSearch, setPersonalNotesSearch] = useState("");
 
-  // Interactive Live Teacher Announcements state (polls localStorage).
-  // No fake baseline announcements — those were attributed to real tutor
-  // names with dates that are now months in the past, which would show
-  // every new student stale "news" that never actually happened.
-  const [announcements, setAnnouncements] = useState<Array<{ id: string; courseLevel: string; title: string; text: string; date: string; type: string; instructor: string }>>(() => {
-    const saved = localStorage.getItem("course_announcements");
-    if (!saved) return [];
-    try {
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  // Tutor announcements for this student's school, loaded from the backend.
+  const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; text: string; date: string; type: string; instructor: string }>>([]);
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`announcement_reads_${student.studentIdCode}`);
@@ -222,7 +212,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [homeworkSuccess, setHomeworkSuccess] = useState(false);
 
   // Email form fields
-  const [instructorEmailTarget, setInstructorEmailTarget] = useState(TUTOR_PROFILES[0].email);
+  const [instructorEmailTarget, setInstructorEmailTarget] = useState(groupTutorEmail);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [emailSuccess, setEmailSuccess] = useState(false);
@@ -256,7 +246,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   // Welcome letter modal states
   const [isWelcomeLetterOpen, setIsWelcomeLetterOpen] = useState(false);
   const [welcomeLetterPage, setWelcomeLetterPage] = useState(1);
-  const [portalTutors, setPortalTutors] = useState(TUTOR_PROFILES);
+  const [portalTutors, setPortalTutors] = useState(TUTOR_PROFILES.filter(isGroupTutor));
 
   useEffect(() => {
     localStorage.setItem(`notes_${student.studentIdCode}`, JSON.stringify(personalNotes));
@@ -266,8 +256,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     fetch("/api/tutors")
       .then((res) => res.json())
       .then((data) => {
-        if (!Array.isArray(data) || data.length === 0) return;
-        setPortalTutors(data.map((tutor: any) => ({
+        if (!Array.isArray(data)) return;
+        const groupTutors = data.filter(isGroupTutor);
+        if (groupTutors.length === 0) return;
+        setPortalTutors(groupTutors.map((tutor: any) => ({
           id: tutor.id,
           name: tutor.name,
           displayName: tutor.display_name || tutor.displayName || tutor.name,
@@ -294,7 +286,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
           const matchingSessions = sessions
             .filter((item: any) => {
               const sessionLevel = String(item.course_level || "").match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
-              return (!courseLevelCode || sessionLevel === courseLevelCode) && (item.status === "Live" || item.status === "Scheduled");
+              return (!courseLevelCode || sessionLevel === courseLevelCode) && contentReachesStudent(item, student) && taughtByGroupTutor(item.teacher_name) && (item.status === "Live" || item.status === "Scheduled");
             })
             .sort((a: any, b: any) => Number(b.status === "Live") - Number(a.status === "Live"));
           const upcoming = matchingSessions[0];
@@ -390,6 +382,28 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   useEffect(() => {
     localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
   }, [deletedAnnouncementIds, student.studentIdCode]);
+
+  useEffect(() => {
+    const loadAnnouncements = () => {
+      fetch("/api/announcements")
+        .then((res) => res.ok ? res.json() : [])
+        .then((data) => {
+          if (!Array.isArray(data)) return;
+          setAnnouncements(data.map((item: any) => ({
+            id: `ann-${item.id}`,
+            title: item.title,
+            text: item.text,
+            date: item.created_at ? new Date(item.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "",
+            type: item.alert_type || "info",
+            instructor: item.created_by
+          })));
+        })
+        .catch(() => {});
+    };
+    loadAnnouncements();
+    const refreshTimer = window.setInterval(loadAnnouncements, 60000);
+    return () => window.clearInterval(refreshTimer);
+  }, []);
 
   const { messages: chatMessages, error: chatError, send: sendChat } = useLiveChat(activeSession?.id, insideClassRoom);
 
@@ -600,19 +614,18 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     const matchesSearch = title.toLowerCase().includes(recSearch.toLowerCase()) || teacher.toLowerCase().includes(recSearch.toLowerCase());
     const matchesLevel = recLevel === "All" || level === recLevel;
     const matchesEnrollment = !enrolledLevel || level === enrolledLevel;
-    return matchesSearch && matchesLevel && matchesEnrollment;
+    return matchesSearch && matchesLevel && matchesEnrollment && contentReachesStudent(rec, student) && taughtByGroupTutor(teacher);
   });
 
+  // The API already limits announcements to the student's level and school.
   const visibleAnnouncements = announcements.filter(
-    (announcement) =>
-      announcement.courseLevel === student.courseLevel &&
-      !deletedAnnouncementIds.includes(announcement.id)
+    (announcement) => !deletedAnnouncementIds.includes(announcement.id)
   );
 
   const visibleSharedNotes = sharedNotes.filter((note: any) => {
     const studentLevel = student.courseLevel?.match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase();
     const noteLevel = note.course_level || note.courseLevel;
-    return noteLevel === "All" || !studentLevel || noteLevel === studentLevel;
+    return (noteLevel === "All" || !studentLevel || noteLevel === studentLevel) && contentReachesStudent(note, student) && !createdByOtherTutor(note.created_by);
   });
 
   const updateLessonProgress = async (lessonId: number, percentWatched: number, lastPositionSeconds: number, completed: boolean) => {
@@ -1073,7 +1086,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   </div>
                   <div className="bg-slate-50 p-3 rounded-2xl text-center space-y-0.5">
                     <span className="text-[10px] font-bold text-slate-405 text-slate-400 uppercase tracking-widest block font-bold">{d("Weekly Group", "Grupo Semanal")}</span>
-                    <span className="font-sans font-extrabold text-base text-slate-800">{d(student.classGroup, student.classGroup === "Morning Group" ? "Cohorte de Mañana" : student.classGroup === "Afternoon Group" ? "Horario de Tarde" : "Fin de Semana")}</span>
+                    <span className="font-sans font-extrabold text-base text-slate-800">{classGroupInfo ? classGroupLabel(classGroupInfo) : student.classGroup}</span>
                   </div>
                 </div>
 

@@ -93,6 +93,31 @@ class GoogleAccountProvisionRequest(BaseModel):
 class LiveSessionMeetingLinkUpdate(BaseModel):
     meeting_link: str
 
+class AnnouncementCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    text: str = Field(min_length=1, max_length=5000)
+    course_level: str
+    class_group: Optional[str] = None
+    alert_type: str = "info"
+
+class AnnouncementResponse(BaseModel):
+    id: int
+    title: str
+    text: str
+    course_level: str
+    class_group: Optional[str] = None
+    alert_type: str
+    created_by: str
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class ManualAttendanceUpdate(BaseModel):
+    session_id: int
+    student_id_code: str
+    status: Optional[str] = None  # Present, Late, Absent; empty clears the mark
+
 class LiveSessionJoinRequest(BaseModel):
     student_id_code: str
 
@@ -116,11 +141,15 @@ class LiveSessionCreate(BaseModel):
     teacher_name: str
     date_time: str
     meeting_link: Optional[str] = None
+    class_group: Optional[str] = None
+    # Record a class that already took place (for back-filling attendance).
+    completed: bool = False
 
 class LiveSessionResponse(BaseModel):
     id: int
     title: str
     course_level: str
+    class_group: Optional[str] = None
     teacher_name: str
     date_time: str
     meeting_link: Optional[str]
@@ -171,6 +200,7 @@ class RecordingCreate(BaseModel):
     duration: str = "45 mins"
     description: Optional[str] = None
     session_id: Optional[int] = None
+    class_group: Optional[str] = None
 
 class RecordingResponse(RecordingCreate):
     id: int
@@ -254,6 +284,7 @@ class LessonNoteCreate(BaseModel):
     file_type: str
     shared_with_students: bool = True
     created_by: str
+    class_group: Optional[str] = None
 
 class LessonNoteResponse(LessonNoteCreate):
     id: int

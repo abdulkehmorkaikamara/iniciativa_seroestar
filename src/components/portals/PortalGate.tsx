@@ -19,6 +19,7 @@ import { motion } from "motion/react";
 import { TRANSLATIONS } from "../../translations";
 import { normalizeRole, portalRoleToCanonical, roleMatchesPortal } from "../../roles";
 import PasswordInput from "../PasswordInput";
+import { groupOptionsForLevel } from "../../groups";
 
 interface PortalGateProps {
   role: "student" | "teacher" | "admin";
@@ -574,7 +575,7 @@ May 2026`,
                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{t.gateLabelLevel}</label>
                 <select
                   value={courseLevel}
-                  onChange={(e) => setCourseLevel(e.target.value)}
+                  onChange={(e) => { setCourseLevel(e.target.value); setClassGroup("Group 1"); }}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.8 text-xs text-slate-700 focus:outline-none"
                 >
                   <option value="A1">{lang === "EN" ? "A1 Beginner" : "A1 Principiante"}</option>
@@ -589,8 +590,9 @@ May 2026`,
                   onChange={(e) => setClassGroup(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.8 text-xs text-slate-700 focus:outline-none"
                 >
-                  <option value="Group 1">{lang === "EN" ? "Group 1" : "Grupo 1"}</option>
-                  <option value="Group 2">{lang === "EN" ? "Group 2" : "Grupo 2"}</option>
+                  {groupOptionsForLevel(courseLevel).map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
               </div>
             </div>

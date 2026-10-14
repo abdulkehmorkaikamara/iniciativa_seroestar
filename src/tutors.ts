@@ -8,17 +8,17 @@ export interface TutorProfile {
 
 export const TUTOR_PROFILES: TutorProfile[] = [
   {
-    id: "xiomara-villamizar",
-    name: "Xiomara Villamizar",
-    displayName: "Tutora Xiomara Villamizar",
-    email: "xiomara@seroestar.com",
-    assignedLevels: ["A1", "A2"]
-  },
-  {
     id: "ivoneth-frias",
     name: "Ivoneth Frias",
     displayName: "Tutora Ivoneth Frias",
     email: "ivoneth@seroestar.com",
+    assignedLevels: ["A1", "A2"]
+  },
+  {
+    id: "xiomara-villamizar",
+    name: "Xiomara Villamizar",
+    displayName: "Tutora Xiomara Villamizar",
+    email: "xiomara@seroestar.com",
     assignedLevels: ["A1", "A2"]
   },
   {
@@ -30,6 +30,7 @@ export const TUTOR_PROFILES: TutorProfile[] = [
   }
 ];
 
+// Ivoneth teaches all four schools (A1G1-A1G4), so she is the default tutor.
 export const DEFAULT_TUTOR = TUTOR_PROFILES[0];
 
 export function findTutorByEmail(email?: string) {
