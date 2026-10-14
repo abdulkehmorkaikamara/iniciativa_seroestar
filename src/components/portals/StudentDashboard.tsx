@@ -32,6 +32,7 @@ import Logo from "../Logo";
 import LiveVideoRoom from "../LiveVideoRoom";
 import { useLiveChat } from "../useLiveChat";
 import AdaptiveLessonPlayer from "../AdaptiveLessonPlayer";
+import MessagesPanel, { useUnreadMessages } from "./MessagesPanel";
 import { TUTOR_PROFILES } from "../../tutors";
 import { findClassGroup, classGroupLabel, contentReachesStudent } from "../../groups";
 
@@ -153,6 +154,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
 
   // Student portal tabs: 'lessons' | 'grades-assignments' | 'message-instructors'
   const [activeTab, setActiveTab ] = useState<"lessons" | "grades-assignments" | "message-instructors">("lessons");
+  const unreadMessages = useUnreadMessages("student");
 
   // State
   const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>(() => {
@@ -200,22 +202,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Direct Tutor Correspondences Mailbox
-  const [emails, setEmails] = useState<Array<{ id: string; instructor: string; subject: string; text: string; date: string; status: string }>>(() => {
-    const saved = localStorage.getItem(`emails_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [];
-  });
-
   // Interactive Upload Assignment Fields
   const [selectedAsgId, setSelectedAsgId] = useState(assignments[0]?.id || "");
   const [homeworkFileMockName, setHomeworkFileMockName] = useState("");
   const [homeworkSuccess, setHomeworkSuccess] = useState(false);
-
-  // Email form fields
-  const [instructorEmailTarget, setInstructorEmailTarget] = useState(groupTutorEmail);
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
-  const [emailSuccess, setEmailSuccess] = useState(false);
 
   // File Upload State Simulation for Materials locker — no fake starter
   // file; a brand new student has not uploaded anything yet.
@@ -372,10 +362,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   }, [assignments, student.studentIdCode]);
 
   useEffect(() => {
-    localStorage.setItem(`emails_${student.studentIdCode}`, JSON.stringify(emails));
-  }, [emails, student.studentIdCode]);
-
-  useEffect(() => {
     localStorage.setItem(`announcement_reads_${student.studentIdCode}`, JSON.stringify(readAnnouncementIds));
   }, [readAnnouncementIds, student.studentIdCode]);
 
@@ -477,33 +463,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   };
 
   // Direct Mail Send Handler
-  const handleSendInstructorEmail = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!emailSubject || !emailBody) return;
-
-    const instructorsMap: Record<string, string> = Object.fromEntries(
-      portalTutors.map(tutor => [tutor.email, tutor.name])
-    );
-
-    const newEmail = {
-      id: `mail-${Date.now()}`,
-      instructor: instructorsMap[instructorEmailTarget] || "Instructor",
-      subject: emailSubject,
-      text: emailBody,
-      date: new Date().toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-      status: "SMTP RELAYED via Secure SSL"
-    };
-
-    setEmails([newEmail, ...emails]);
-    setEmailSuccess(true);
-
-    setTimeout(() => {
-      setEmailSuccess(false);
-      setEmailSubject("");
-      setEmailBody("");
-    }, 4500);
-  };
-
   // Simulated drop upload handler for standard Locker
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -822,7 +781,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
           }`}
         >
           <Mail size={14} />
-          <span>{d("Direct Email Tutors", "Enviar Correo a Tutores")}</span>
+          <span>{d("Message Your Tutor", "Mensajes a tu Tutora")}</span>
+          {unreadMessages > 0 && activeTab !== "message-instructors" && (
+            <span className="bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full">{unreadMessages}</span>
+          )}
         </button>
       </div>
 
@@ -1561,146 +1523,14 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
         </div>
       )}
 
-      {/* DIRECT INSTRUCTOR EMAILS TAB */}
+      {/* MESSAGES WITH THE GROUP TUTOR */}
       {activeTab === "message-instructors" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in text-left font-sans" id="message-instructors-tab-pane">
-          
-          {/* SMTP simulated email pane composer */}
-          <div className="lg:col-span-2 bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-5">
-            <div className="pb-4 border-b border-slate-100">
-              <h3 className="font-sans font-black text-slate-950 text-xs sm:text-sm uppercase tracking-wider flex items-center">
-                <Mail size={18} className="text-teal-600 mr-2" />
-                <span>{d("Classroom SMTP Email Bridge (SSL Encrypted)", "Puente de Correo SMTP del Aula (Encriptado SSL)")}</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-1 font-sans leading-relaxed">
-                {d(
-                  "Send formal academic email correspondence directly to your instructor's professional mailbox. Relayed live over Iniciativa Ser o Estar's Single Sign-On SMTP tunnel.",
-                  "Envía correspondencia académica formal directamente al buzón profesional de tu instructor. Transmitido en vivo a través del túnel SMTP Single Sign-On de Iniciativa Ser o Estar."
-                )}
-              </p>
-            </div>
-
-            {emailSuccess && (
-              <div className="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-xs flex items-start space-x-2.5">
-                <CheckCircle2 size={15} className="shrink-0 mt-0.5 text-emerald-600" />
-                <div className="space-y-0.5">
-                  <span className="font-bold">Transmission Successful! / ¡Envío Correcto!</span>
-                  <p className="text-emerald-700">{d("Digital SMTP Relay completed with certificate code. Instructor has been notified on their terminal dashboard.", "Transmisión SMTP completada con código de certificado. El instructor ha sido notificado en su panel.")}</p>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleSendInstructorEmail} className="space-y-4 w-full">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] font-bold text-slate-404 text-slate-400 uppercase tracking-wider block">{d("Target Instructor", "Instructor Destinatario")}</label>
-                  <select
-                    value={instructorEmailTarget}
-                    onChange={(e) => setInstructorEmailTarget(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-205 border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-700 font-bold focus:outline-hidden"
-                  >
-                    {portalTutors.map(tutor => (
-                      <option key={tutor.id} value={tutor.email}>{tutor.name} ({tutor.email})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{d("Send From (Your SSO verified address)", "Enviado Desde (Tu dirección verificado SSO)")}</label>
-                  <input
-                    type="text"
-                    disabled
-                    value={student.email}
-                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs font-mono text-slate-500 focus:outline-hidden"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1 text-left">
-                <label className="text-[10px] font-bold text-slate-404 text-slate-400 uppercase tracking-wider block font-bold">{d("Subject Line", "Asunto")}</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={d("e.g. Question on Estar Location rules vs emotional state descriptor", "ej. Pregunta sobre reglas de ubicación de Estar vs descriptor de estado emocional")}
-                  value={emailSubject}
-                  onChange={(e) => setEmailSubject(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
-                />
-              </div>
-
-              <div className="space-y-1 text-left">
-                <label className="text-[10px] font-bold text-slate-404 text-slate-400 uppercase tracking-wider block font-bold">{d("Email Message Content", "Contenido del Mensaje de Correo")}</label>
-                <textarea
-                  required
-                  rows={5}
-                  placeholder={d("Write your email here... Estimado/a Profesor...", "Escribe tu correo electrónico aquí... Estimado/a Profesor/a...")}
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 text-xs focus:outline-hidden focus:border-teal-600"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-teal-700 hover:bg-teal-600 text-white rounded-xl font-bold font-sans text-xs tracking-wider transition-colors shadow-md shadow-teal-700/10 cursor-pointer flex items-center justify-center space-x-1.5"
-              >
-                <Send size={13} />
-                <span>{d("Transmit Secured Email Message", "Transmitir Mensaje de Correo Seguro")}</span>
-              </button>
-            </form>
-          </div>
-
-          {/* Sent Mail correspondences archives box */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between">
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-slate-100">
-                <h3 className="font-sans font-black text-slate-950 text-xs uppercase tracking-wider flex items-center">
-                  <Inbox size={16} className="text-teal-600 mr-2" />
-                  <span>{d("Sent Message Log (Awaiting Response)", "Registro de Mensajes Enviados (Esperando Respuesta)")}</span>
-                </h3>
-              </div>
-
-              <div className="space-y-3 max-h-[380px] overflow-y-auto w-full">
-                {emails.length > 0 ? (
-                  emails.map((mail) => (
-                    <div key={mail.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-left">
-                      <div className="flex justify-between items-start flex-wrap gap-1 text-left">
-                        <div className="space-y-0.5">
-                          <span className="text-[9px] font-bold text-slate-400 font-mono uppercase tracking-widest block">{d("To Instructor:", "Para el Instructor:")}</span>
-                          <span className="text-xs font-bold text-slate-800 leading-none">{mail.instructor}</span>
-                        </div>
-                        <span className="text-[9px] text-slate-400 font-mono italic">{mail.date}</span>
-                      </div>
-                      
-                      <div className="border-t border-slate-205 pt-1">
-                        <p className="text-[11px] font-extrabold text-slate-700 truncate block">{mail.subject}</p>
-                        <p className="text-[10px] text-slate-555 text-slate-500 line-clamp-3 mt-1 leading-normal font-sans italic bg-white/50 p-2 rounded-lg border border-slate-200/40">{mail.text}</p>
-                      </div>
-
-                      <div className="pt-1 flex items-center justify-between text-[8px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
-                        <span>{mail.status === "DELIVERED" ? d("DELIVERED", "ENTREGADO") : mail.status}</span>
-                        <CheckCircle size={9} />
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-10 text-xs text-slate-400 font-sans flex flex-col items-center justify-center space-y-2">
-                    <Inbox size={24} className="text-slate-300" />
-                    <span>{d("No sent mail has been logged in this session yet.", "Aún no se ha registrado ningún correo enviado en esta sesión.")}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Registrar Signature */}
-            <div className="bg-slate-50 border border-dashed border-slate-200 p-4 rounded-2xl text-[10px] text-slate-400 leading-relaxed mt-4 text-left">
-              <span className="font-bold text-slate-600 uppercase block tracking-wider mb-0.5">{d("SMTP Relay Authentication", "Autenticación de Relevo SMTP")}</span>
-              {d(
-                "All SMTP records are mapped directly against active student IDs and validated using security certificates of partners like UNIMAK.",
-                "Todos los registros SMTP se mapean directamente con los ID de estudiantes activos y se validan con certificados de seguridad de socios como UNIMAK."
-              )}
-            </div>
-          </div>
+        <div className="animate-fade-in" id="message-instructors-tab-pane">
+          <MessagesPanel
+            role="student"
+            d={d}
+            tutors={portalTutors.map((tutor) => ({ email: tutor.email, name: tutor.displayName || tutor.name }))}
+          />
         </div>
       )}
 

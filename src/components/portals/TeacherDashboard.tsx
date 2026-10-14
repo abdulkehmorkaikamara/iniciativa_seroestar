@@ -18,6 +18,7 @@ import {
   Upload
 } from "lucide-react";
 import LiveVideoRoom from "../LiveVideoRoom";
+import MessagesPanel from "./MessagesPanel";
 import { useLiveChat } from "../useLiveChat";
 import { findTutorByEmail } from "../../tutors";
 import { CLASS_GROUPS, ClassGroup, classGroupLabel, classGroupValue, contentAudienceLabel, groupsForTutor } from "../../groups";
@@ -657,6 +658,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
           );
         })}
       </div>
+
+      <MessagesPanel role="tutor" d={d} />
 
       {currentActiveRoom ? (
         /* LIVE CALL CLASS INTERACTIVE WORKSPACE */

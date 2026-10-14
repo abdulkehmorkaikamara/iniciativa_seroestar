@@ -222,6 +222,23 @@ class Announcement(Base):
     created_by_email = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class PortalMessage(Base):
+    """A message between a student and a tutor, shown inside both portals."""
+
+    __tablename__ = "portal_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    tutor_email = Column(String(255), nullable=False, index=True) # the tutor's address in TUTOR_PROFILES
+    tutor_name = Column(String(255), nullable=False)
+    sender_role = Column(String(50), nullable=False) # student, tutor
+    subject = Column(String(255), nullable=True)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    read_at = Column(DateTime(timezone=True), nullable=True) # when the recipient opened it
+
+    student = relationship("StudentProfile")
+
 class BlogPost(Base):
     __tablename__ = "blog_posts"
 
