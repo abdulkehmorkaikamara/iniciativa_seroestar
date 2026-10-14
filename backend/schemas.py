@@ -113,6 +113,29 @@ class AnnouncementResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class PortalMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+    subject: Optional[str] = Field(default=None, max_length=255)
+    tutor_email: Optional[str] = None  # set by students
+    student_id_code: Optional[str] = None  # set by tutors
+
+class PortalMessageResponse(BaseModel):
+    id: int
+    student_id_code: str
+    student_name: str
+    course_level: str
+    class_group: Optional[str] = None
+    tutor_email: str
+    tutor_name: str
+    sender_role: str
+    subject: Optional[str] = None
+    body: str
+    created_at: Optional[datetime] = None
+    read_at: Optional[datetime] = None
+
+class PortalMessageReadRequest(BaseModel):
+    message_ids: List[int] = Field(max_length=500)
+
 class ManualAttendanceUpdate(BaseModel):
     session_id: int
     student_id_code: str

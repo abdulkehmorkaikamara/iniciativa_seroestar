@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from .database import get_db, database_description
@@ -1631,6 +1632,139 @@ def delete_announcement(announcement_id: int, request: Request, db: Session = De
     db.delete(announcement)
     db.commit()
     return {"detail": "Announcement deleted"}
+
+
+def _tutor_message_identity(payload: dict, db: Session) -> tuple[str, str, set[str]]:
+    """The address a tutor's messages are filed under, their name, and every
+    address students may have written to (login email plus TUTOR_PROFILES)."""
+    login_email = str(payload.get("sub") or "").strip().lower()
+    names = _tutor_names_for(payload, db)
+    profiles = [
+        tutor for tutor in TUTOR_PROFILES
+        if tutor["email"].lower() == login_email
+        or _normalize_teacher_name(tutor.get("name")) in names
+        or _normalize_teacher_name(tutor.get("display_name")) in names
+    ]
+    emails = {login_email} | {tutor["email"].lower() for tutor in profiles}
+    emails.discard("")
+    if profiles:
+        return profiles[0]["email"].lower(), profiles[0]["name"], emails
+    user = db.query(models.User).filter(models.User.id == payload.get("id")).first()
+    return login_email, (user.full_name if user and user.full_name else login_email), emails
+
+
+def _message_response(message: models.PortalMessage) -> dict:
+    student = message.student
+    return {
+        "id": message.id,
+        "student_id_code": student.student_id_code,
+        "student_name": student.user.full_name if student.user else student.student_id_code,
+        "course_level": student.course_level,
+        "class_group": student.class_group,
+        "tutor_email": message.tutor_email,
+        "tutor_name": message.tutor_name,
+        "sender_role": message.sender_role,
+        "subject": message.subject,
+        "body": message.body,
+        "created_at": message.created_at,
+        "read_at": message.read_at,
+    }
+
+
+def _student_for_payload(payload: dict, db: Session) -> models.StudentProfile:
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("id")).first()
+    if not student:
+        raise HTTPException(status_code=403, detail="No student record for this account.")
+    return student
+
+
+def _visible_messages(payload: dict, db: Session):
+    """Students see their own conversations, tutors theirs, developers all."""
+    query = db.query(models.PortalMessage)
+    if payload.get("role") == roles.STUDENT:
+        query = query.filter(models.PortalMessage.student_id == _student_for_payload(payload, db).id)
+    elif payload.get("role") == roles.TUTOR:
+        _, _, emails = _tutor_message_identity(payload, db)
+        query = query.filter(func.lower(models.PortalMessage.tutor_email).in_(emails))
+    return query
+
+
+@app.get("/api/messages", response_model=List[schemas.PortalMessageResponse])
+def list_messages(request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.ALL_ROLES))
+    messages = _visible_messages(auth_payload, db).order_by(models.PortalMessage.id).all()
+    return [_message_response(message) for message in messages]
+
+
+@app.post("/api/messages", response_model=schemas.PortalMessageResponse)
+def send_message(payload: schemas.PortalMessageCreate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT, roles.TUTOR})
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Write a message first.")
+    if auth_payload.get("role") == roles.STUDENT:
+        student = _student_for_payload(auth_payload, db)
+        tutor = next(
+            (t for t in TUTOR_PROFILES if t["email"].lower() == (payload.tutor_email or "").strip().lower()),
+            None,
+        )
+        if not tutor:
+            raise HTTPException(status_code=400, detail="Choose one of your tutors.")
+        tutor_email, tutor_name = tutor["email"].lower(), tutor["name"]
+    else:
+        student = db.query(models.StudentProfile).filter(
+            models.StudentProfile.student_id_code == (payload.student_id_code or "").strip()
+        ).first()
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found.")
+        tutor_email, tutor_name, _ = _tutor_message_identity(auth_payload, db)
+    message = models.PortalMessage(
+        student_id=student.id,
+        tutor_email=tutor_email,
+        tutor_name=tutor_name,
+        sender_role=auth_payload.get("role"),
+        subject=(payload.subject or "").strip() or None,
+        body=body,
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+    return _message_response(message)
+
+
+@app.post("/api/messages/read")
+def mark_messages_read(payload: schemas.PortalMessageReadRequest, request: Request, db: Session = Depends(get_db)):
+    """Mark messages the caller received as read; their own messages are left alone."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT, roles.TUTOR})
+    if not payload.message_ids:
+        return {"updated": 0}
+    incoming_from = roles.TUTOR if auth_payload.get("role") == roles.STUDENT else roles.STUDENT
+    messages = _visible_messages(auth_payload, db).filter(
+        models.PortalMessage.id.in_(payload.message_ids),
+        models.PortalMessage.sender_role == incoming_from,
+        models.PortalMessage.read_at.is_(None),
+    ).all()
+    now = datetime.now(timezone.utc)
+    for message in messages:
+        message.read_at = now
+    db.commit()
+    return {"updated": len(messages)}
+
+
+@app.get("/api/messages/students")
+def list_message_students(request: Request, db: Session = Depends(get_db)):
+    """Students a tutor can start a conversation with."""
+    _request_auth_payload(request, set(roles.STAFF_ROLES))
+    students = db.query(models.StudentProfile).all()
+    return [
+        {
+            "student_id_code": student.student_id_code,
+            "full_name": student.user.full_name if student.user else student.student_id_code,
+            "course_level": student.course_level,
+            "class_group": student.class_group,
+        }
+        for student in sorted(students, key=lambda s: ((s.user.full_name if s.user else "") or s.student_id_code).lower())
+    ]
 
 
 @app.get("/api/tutor/group-attendance")
