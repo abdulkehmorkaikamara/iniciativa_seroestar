@@ -1378,7 +1378,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Affiliated Registrar", "Registro Afiliado")}</span>
-                <span className="font-extrabold text-xs text-teal-800 mt-3 block truncate font-bold">UNIMAK / SE / EMBAJADA</span>
+                <span className="font-extrabold text-xs text-teal-800 mt-3 block truncate font-bold">INICIATIVA SER o ESTAR</span>
                 <span className="text-[9px] text-slate-400 block mt-1">{d("Tight SSO security verified", "Seguridad SSO estricta verificada")}</span>
               </div>
             </div>

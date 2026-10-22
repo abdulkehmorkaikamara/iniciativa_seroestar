@@ -49,6 +49,7 @@ const AdminDashboard = React.lazy(() => import("./components/portals/AdminDashbo
 const PortalGate = React.lazy(() => import("./components/portals/PortalGate"));
 
 import { normalizeRole } from "./roles";
+import { CLASS_GROUPS } from "./groups";
 
 const HERO_SLIDES_EN = [
   {
@@ -2247,19 +2248,19 @@ Spanish:
                 >
                   <div className="flex items-center space-x-3.5">
                     <div className="w-11 h-11 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center shrink-0 shadow-sm border border-teal-100">
-                      <Building2 size={20} />
+                      <Briefcase size={20} />
                     </div>
                     <div>
                       <h4 className="font-sans font-black text-slate-900 text-sm tracking-tight leading-none">
-                        {courseLang === "EN" ? "Government of Sierra Leone" : "Gobierno de Sierra Leona"}
+                        {courseLang === "EN" ? "Private Sector" : "Sector Privado"}
                       </h4>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{courseLang === "EN" ? "Education & Culture Divisions" : "Divisiones de Educación y Cultura"}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{courseLang === "EN" ? "Business & Tourism" : "Empresas y Turismo"}</p>
                     </div>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed text-left">
                     {courseLang === "EN"
-                      ? "Collaborating with educational authorities and national ministries to promote multilingualism as a pillar of professional development, facilitating modern linguistic methodologies for secondary programs."
-                      : "Colaboramos con autoridades educativas y ministerios nacionales para promover el multilingüismo como pilar del desarrollo profesional e impulsar metodologías lingüísticas modernas en los programas de secundaria."}
+                      ? "Collaborating with the business and tourism sectors to promote Spanish language skills and open up professional opportunities for all participants."
+                      : "Colaboramos con los sectores empresarial y turístico para promover el aprendizaje del español y abrir oportunidades profesionales para todos los participantes."}
                   </p>
                 </motion.div>
 
@@ -2274,15 +2275,21 @@ Spanish:
                     </div>
                     <div>
                       <h4 className="font-sans font-black text-slate-900 text-sm tracking-tight leading-none">
-                        Education
+                        {courseLang === "EN" ? "Partner Schools" : "Escuelas Asociadas"}
                       </h4>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{courseLang === "EN" ? "Freetown, Sierra Leone" : "Freetown, Sierra Leona"}</p>
                     </div>
                   </div>
                   <p className="text-xs text-slate-600 leading-relaxed text-left">
                     {courseLang === "EN"
-                      ? "Active academic alignment with schools and universities. Our partnership supports joint Romance linguistics studies, teacher placement networks, student exchanges, and dual-credit training courses."
-                      : "Mantenemos una colaboración académica activa con escuelas y universidades. Nuestra alianza apoya estudios conjuntos de lingüística románica, redes de prácticas docentes, intercambios estudiantiles y cursos formativos con créditos compartidos."}
+                      ? "Together with the Spanish Embassy, we bring Spanish classes to students at our four partner schools:"
+                      : "Junto con la Embajada de España, llevamos clases de español a los estudiantes de nuestras cuatro escuelas asociadas:"}
                   </p>
+                  <ul className="text-xs text-slate-700 font-semibold space-y-1 list-disc pl-4">
+                    {CLASS_GROUPS.map((g) => (
+                      <li key={g.code}>{g.school}</li>
+                    ))}
+                  </ul>
                 </motion.div>
               </div>
             </div>
