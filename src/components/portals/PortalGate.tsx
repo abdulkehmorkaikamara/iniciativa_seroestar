@@ -733,8 +733,8 @@ May 2026`,
                 </span>
                 <p className="text-[10px] text-slate-500 leading-relaxed">
                   {lang === "EN" 
-                    ? "Single Sign-On is fully synchronized. Enrolled students of affiliated partnerships (UNIMAK, Government, Embassy) can authenticate instantly."
-                    : "El inicio de sesión único (SSO) está completamente sincronizado. Estudiantes de instituciones asociadas (UNIMAK, Gobierno, Embajada de España) ingresan instantáneamente."}
+                    ? "Single Sign-On is fully synchronized. Enrolled students of affiliated partnerships (Spanish Embassy and partner schools) can authenticate instantly."
+                    : "El inicio de sesión único (SSO) está completamente sincronizado. Estudiantes de instituciones asociadas (Embajada de España y escuelas asociadas) ingresan instantáneamente."}
                 </p>
               </div>
             </div>
