@@ -148,6 +148,14 @@ class AssessmentScoreUpdate(BaseModel):
     score: Optional[float] = None  # None clears the mark
     remarks: Optional[str] = Field(default=None, max_length=2000)
 
+class HomeworkCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    instructions: Optional[str] = Field(default=None, max_length=5000)
+    course_level: str = Field(min_length=2, max_length=50)
+    class_group: str = Field(min_length=1, max_length=50)
+    due_date: Optional[str] = Field(default=None, max_length=20)
+    max_score: float = Field(default=100, gt=0, le=1000)
+
 class ManualAttendanceUpdate(BaseModel):
     session_id: int
     student_id_code: str
