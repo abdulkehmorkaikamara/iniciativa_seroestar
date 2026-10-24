@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -237,6 +237,39 @@ class PortalMessage(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     read_at = Column(DateTime(timezone=True), nullable=True) # when the recipient opened it
 
+    student = relationship("StudentProfile")
+
+class Assessment(Base):
+    """A graded piece of work (quiz, test, homework) for one school's group."""
+
+    __tablename__ = "assessments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    course_level = Column(String(50), nullable=False) # A1, A2, B1
+    class_group = Column(String(50), nullable=False) # "Group N", the school's group
+    max_score = Column(Float, nullable=False, default=100)
+    assessed_on = Column(String(20), nullable=True) # YYYY-MM-DD
+    created_by = Column(String(255), nullable=False) # tutor's display name
+    created_by_email = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    scores = relationship("AssessmentScore", back_populates="assessment", cascade="all, delete-orphan")
+
+class AssessmentScore(Base):
+    """One student's mark on an assessment. No row means not graded yet."""
+
+    __tablename__ = "assessment_scores"
+    __table_args__ = (UniqueConstraint("assessment_id", "student_id", name="uq_assessment_scores_assessment_student"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    assessment_id = Column(Integer, ForeignKey("assessments.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    score = Column(Float, nullable=False)
+    remarks = Column(Text, nullable=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    assessment = relationship("Assessment", back_populates="scores")
     student = relationship("StudentProfile")
 
 class BlogPost(Base):

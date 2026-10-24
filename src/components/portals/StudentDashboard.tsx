@@ -186,29 +186,24 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     }
   });
 
-  // Direct Student Grades Tracker — no fake default grades. A brand new
-  // student has not taken any exam yet, so an empty list here is the
-  // honest state; the previous hardcoded "94/100" etc. would otherwise
-  // show up for every new student as if they'd already been graded.
-  const [gradesList, setGradesList] = useState<Array<{ id: string; subject: string; score: string; weight: string; date: string; remarks: string }>>(() => {
-    const saved = localStorage.getItem(`grades_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Grades the tutor records in their gradebook. An assessment without a
+  // score yet is shown as pending.
+  const [gradesList, setGradesList] = useState<Array<{ id: number; title: string; max_score: number; assessed_on?: string | null; created_by?: string; score: number | null; remarks?: string | null }>>([]);
+  useEffect(() => {
+    fetch("/api/grades/me")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setGradesList(Array.isArray(data) ? data : []))
+      .catch(() => setGradesList([]));
+  }, [student.studentIdCode]);
 
-  // Gradebook summary computed from the student's own grades. Scores look
-  // like "94/100", "88%" or "Pending Review"; anything unparseable is skipped.
+  // Gradebook summary computed from the student's own grades.
   const gradedPercents = gradesList
-    .map((g) => {
-      const frac = g.score.match(/([\d.]+)\s*\/\s*([\d.]+)/);
-      if (frac && Number(frac[2]) > 0) return (Number(frac[1]) / Number(frac[2])) * 100;
-      const pct = g.score.match(/([\d.]+)\s*%/);
-      return pct ? Number(pct[1]) : null;
-    })
-    .filter((n): n is number => n !== null);
+    .filter((g) => g.score !== null && g.max_score > 0)
+    .map((g) => ((g.score as number) / g.max_score) * 100);
   const averageScore = gradedPercents.length
     ? gradedPercents.reduce((a, b) => a + b, 0) / gradedPercents.length
     : null;
-  const pendingGrades = gradesList.filter((g) => g.score === "Pending Review").length;
+  const pendingGrades = gradesList.filter((g) => g.score === null).length;
 
   // Assignments submitted & pending — same reasoning: no fake assignments
   // with deadlines that have already passed for every new student.
@@ -1393,7 +1388,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Assessed Components", "Componentes Evaluados")}</span>
                 <span className="font-extrabold text-2xl text-slate-800 mt-2 block">{gradedPercents.length} / {gradesList.length}</span>
-                <span className="text-[10px] text-slate-500 block mt-1">{d(`${pendingGrades} pending grading`, `${pendingGrades} pendiente${pendingGrades === 1 ? "" : "s"} de calificación`)}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">{d(`${pendingGrades} not graded yet`, `${pendingGrades} sin calificar`)}</span>
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Affiliated Registrar", "Registro Afiliado")}</span>
@@ -1415,23 +1410,20 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                 {gradesList.map((grade) => (
                   <div key={grade.id} className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:bg-slate-100/50">
                     <div className="space-y-1 text-left">
-                      <div className="flex items-center gap-2 flex-wrap text-left">
-                        <h4 className="font-extrabold text-xs text-slate-900">{grade.subject}</h4>
-                        <span className="text-[9px] font-mono bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded-full">
-                          {d(`Weight: ${grade.weight}`, `Peso: ${grade.weight}`)}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-550 text-slate-500 italic">" {grade.remarks} "</p>
-                      <span className="text-[10px] font-mono text-slate-400 block pt-0.5">{d(`Date Logged: ${grade.date}`, `Fecha de Registro: ${grade.date}`)}</span>
+                      <h4 className="font-extrabold text-xs text-slate-900">{grade.title}</h4>
+                      {grade.remarks && <p className="text-[11px] text-slate-500 italic">"{grade.remarks}"</p>}
+                      <span className="text-[10px] font-mono text-slate-400 block pt-0.5">
+                        {[grade.assessed_on, grade.created_by].filter(Boolean).join(" · ")}
+                      </span>
                     </div>
 
                     <div className="text-right shrink-0">
                       <span className={`text-xs font-black px-3.5 py-1.5 rounded-xl font-mono block ${
-                        grade.score === "Pending Review" 
-                          ? "bg-amber-100 text-amber-800" 
+                        grade.score === null
+                          ? "bg-amber-100 text-amber-800"
                           : "bg-teal-600 text-white"
                       }`}>
-                        {grade.score === "Pending Review" ? d("Pending Review", "Pendiente de Revisión") : grade.score}
+                        {grade.score === null ? d("Not graded yet", "Sin calificar") : `${grade.score} / ${grade.max_score}`}
                       </span>
                     </div>
                   </div>
