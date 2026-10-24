@@ -1809,6 +1809,170 @@ def get_group_attendance(course_level: str, class_group: str, request: Request, 
     }
 
 
+def _students_in_group(level: str, class_group: str | None, db: Session) -> list[models.StudentProfile]:
+    students = [
+        student
+        for student in db.query(models.StudentProfile).all()
+        if _course_level_code(student.course_level) == level and group_number(student.class_group) == group_number(class_group)
+    ]
+    return sorted(students, key=lambda s: ((s.user.full_name if s.user else "") or s.student_id_code).lower())
+
+
+def _owns_assessment(payload: dict, assessment: models.Assessment) -> bool:
+    if payload.get("role") == roles.DEVELOPER:
+        return True
+    return (assessment.created_by_email or "") == str(payload.get("sub") or "").lower()
+
+
+def _require_assessment(assessment_id: int, payload: dict, db: Session) -> models.Assessment:
+    assessment = db.query(models.Assessment).filter(models.Assessment.id == assessment_id).first()
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Assessment not found.")
+    if not _owns_assessment(payload, assessment):
+        raise HTTPException(status_code=403, detail="You can only grade your own assessments.")
+    return assessment
+
+
+def _assessment_response(assessment: models.Assessment) -> dict:
+    return {
+        "id": assessment.id,
+        "title": assessment.title,
+        "course_level": assessment.course_level,
+        "class_group": assessment.class_group,
+        "max_score": assessment.max_score,
+        "assessed_on": assessment.assessed_on,
+        "created_by": assessment.created_by,
+    }
+
+
+@app.get("/api/tutor/gradebook")
+def get_gradebook(course_level: str, class_group: str, request: Request, db: Session = Depends(get_db)):
+    """Gradebook for one school's group: its students, the tutor's assessments and scores."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(course_level)
+    students = _students_in_group(level, class_group, db)
+    assessments = [
+        assessment
+        for assessment in db.query(models.Assessment).order_by(models.Assessment.id).all()
+        if _course_level_code(assessment.course_level) == level
+        and group_number(assessment.class_group) == group_number(class_group)
+        and _owns_assessment(auth_payload, assessment)
+    ]
+    scores: dict[str, dict[str, dict]] = {}
+    for assessment in assessments:
+        for row in assessment.scores:
+            scores.setdefault(str(assessment.id), {})[row.student.student_id_code] = {"score": row.score, "remarks": row.remarks}
+    return {
+        "students": [
+            {"student_id_code": student.student_id_code, "full_name": student.user.full_name if student.user else student.student_id_code}
+            for student in students
+        ],
+        "assessments": [_assessment_response(assessment) for assessment in assessments],
+        "scores": scores,
+    }
+
+
+@app.post("/api/assessments")
+def create_assessment(payload: schemas.AssessmentCreate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(payload.course_level)
+    if level not in {"A1", "A2", "B1"}:
+        raise HTTPException(status_code=400, detail="Invalid course level.")
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Give the assessment a name.")
+    assessed_on = (payload.assessed_on or "").strip() or None
+    if assessed_on:
+        try:
+            datetime.strptime(assessed_on, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Use a YYYY-MM-DD date.")
+    user = db.query(models.User).filter(models.User.id == auth_payload.get("id")).first()
+    assessment = models.Assessment(
+        title=title,
+        course_level=level,
+        class_group=_normalize_class_group(payload.class_group) or "Group 1",
+        max_score=payload.max_score,
+        assessed_on=assessed_on,
+        created_by=(user.full_name if user and user.full_name else str(auth_payload.get("sub") or "Tutor")),
+        created_by_email=str(auth_payload.get("sub") or "").lower() or None,
+    )
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+    return _assessment_response(assessment)
+
+
+@app.delete("/api/assessments/{assessment_id}")
+def delete_assessment(assessment_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    assessment = _require_assessment(assessment_id, auth_payload, db)
+    db.delete(assessment)
+    db.commit()
+    return {"detail": "Assessment deleted"}
+
+
+@app.put("/api/assessments/{assessment_id}/scores")
+def set_assessment_score(assessment_id: int, payload: schemas.AssessmentScoreUpdate, request: Request, db: Session = Depends(get_db)):
+    """Record, change or clear (score null) one student's mark."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    assessment = _require_assessment(assessment_id, auth_payload, db)
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.student_id_code == payload.student_id_code.strip()).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    if not (
+        _course_level_code(student.course_level) == _course_level_code(assessment.course_level)
+        and group_number(student.class_group) == group_number(assessment.class_group)
+    ):
+        raise HTTPException(status_code=400, detail="This student is not in this assessment's school.")
+    row = db.query(models.AssessmentScore).filter(
+        models.AssessmentScore.assessment_id == assessment.id,
+        models.AssessmentScore.student_id == student.id,
+    ).first()
+    if payload.score is None:
+        if row:
+            db.delete(row)
+            db.commit()
+        return {"student_id_code": student.student_id_code, "score": None, "remarks": None}
+    if not 0 <= payload.score <= assessment.max_score:
+        raise HTTPException(status_code=400, detail=f"Score must be between 0 and {assessment.max_score:g}.")
+    remarks = (payload.remarks or "").strip() or None
+    if row:
+        row.score = payload.score
+        row.remarks = remarks
+    else:
+        row = models.AssessmentScore(assessment_id=assessment.id, student_id=student.id, score=payload.score, remarks=remarks)
+        db.add(row)
+    db.commit()
+    return {"student_id_code": student.student_id_code, "score": row.score, "remarks": row.remarks}
+
+
+@app.get("/api/grades/me")
+def get_my_grades(request: Request, db: Session = Depends(get_db)):
+    """A student's assessments, with their score or null while not graded yet."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    level = _course_level_code(student.course_level)
+    assessments = [
+        assessment
+        for assessment in db.query(models.Assessment).order_by(models.Assessment.id).all()
+        if _course_level_code(assessment.course_level) == level
+        and group_number(assessment.class_group) == group_number(student.class_group)
+    ]
+    own = {
+        row.assessment_id: row
+        for row in db.query(models.AssessmentScore).filter(models.AssessmentScore.student_id == student.id).all()
+    }
+    return [
+        {
+            **_assessment_response(assessment),
+            "score": own[assessment.id].score if assessment.id in own else None,
+            "remarks": own[assessment.id].remarks if assessment.id in own else None,
+        }
+        for assessment in assessments
+    ]
+
+
 @app.put("/api/attendance/manual")
 def set_manual_attendance(payload: schemas.ManualAttendanceUpdate, request: Request, db: Session = Depends(get_db)):
     """Let a class's tutor mark a student Present, Late or Absent by hand."""

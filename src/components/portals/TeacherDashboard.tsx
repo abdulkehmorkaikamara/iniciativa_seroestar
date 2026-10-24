@@ -15,7 +15,8 @@ import {
   Sparkles,
   Search,
   MessageSquare,
-  Upload
+  Upload,
+  Award
 } from "lucide-react";
 import LiveVideoRoom from "../LiveVideoRoom";
 import MessagesPanel from "./MessagesPanel";
@@ -491,6 +492,113 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     } catch (error: any) {
       setAttendanceError(error?.message || d("The class could not be added.", "No se pudo añadir la clase."));
     }
+  };
+
+  // Gradebook for one school: the tutor's assessments x students, scores typed in by hand.
+  type Gradebook = { students: any[]; assessments: any[]; scores: Record<string, Record<string, { score: number; remarks?: string | null }>> };
+  const [gradeGroupCode, setGradeGroupCode] = useState(tutorGroups[0].code);
+  const [gradebook, setGradebook] = useState<Gradebook>({ students: [], assessments: [], scores: {} });
+  const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({});
+  const [gradeError, setGradeError] = useState<string | null>(null);
+  const [newAssessmentTitle, setNewAssessmentTitle] = useState("");
+  const [newAssessmentMax, setNewAssessmentMax] = useState("100");
+  const [newAssessmentDate, setNewAssessmentDate] = useState("");
+
+  useEffect(() => {
+    const group = groupByCode(gradeGroupCode);
+    setGradeError(null);
+    setGradeDrafts({});
+    fetch(`/api/tutor/gradebook?course_level=${group.level}&class_group=${encodeURIComponent(classGroupValue(group))}`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setGradebook(data))
+      .catch(() => setGradeError(d("The gradebook could not be loaded.", "No se pudo cargar la libreta de calificaciones.")));
+  }, [gradeGroupCode]);
+
+  const handleAddAssessment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = newAssessmentTitle.trim();
+    if (!title) return;
+    const group = groupByCode(gradeGroupCode);
+    setGradeError(null);
+    const response = await fetch("/api/assessments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title,
+        course_level: group.level,
+        class_group: classGroupValue(group),
+        max_score: Number(newAssessmentMax) || 100,
+        assessed_on: newAssessmentDate || null
+      })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    if (!response?.ok) {
+      setGradeError((typeof payload?.detail === "string" && payload.detail) || d("The assessment could not be added.", "No se pudo añadir la evaluación."));
+      return;
+    }
+    setGradebook((book) => ({ ...book, assessments: [...book.assessments, payload] }));
+    setNewAssessmentTitle("");
+    setNewAssessmentDate("");
+  };
+
+  const handleDeleteAssessment = async (assessment: any) => {
+    if (!window.confirm(d(`Delete "${assessment.title}" and all its scores?`, `¿Eliminar "${assessment.title}" y todas sus calificaciones?`))) return;
+    setGradeError(null);
+    const response = await fetch(`/api/assessments/${assessment.id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      setGradeError(d("The assessment could not be deleted.", "No se pudo eliminar la evaluación."));
+      return;
+    }
+    setGradebook((book) => {
+      const scores = { ...book.scores };
+      delete scores[String(assessment.id)];
+      return { ...book, assessments: book.assessments.filter((a) => a.id !== assessment.id), scores };
+    });
+  };
+
+  // Saves a typed score when the tutor leaves the box; an empty box clears the mark.
+  const handleSaveScore = async (assessment: any, studentCode: string) => {
+    const key = `${assessment.id}:${studentCode}`;
+    const draft = gradeDrafts[key];
+    if (draft === undefined) return;
+    const clearDraft = () => setGradeDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[key];
+      return next;
+    });
+    const stored = gradebook.scores[String(assessment.id)]?.[studentCode]?.score;
+    const text = draft.trim();
+    const score = text === "" ? null : Number(text);
+    if (score === (stored ?? null)) return clearDraft();
+    if (score !== null && (Number.isNaN(score) || score < 0 || score > assessment.max_score)) {
+      setGradeError(d(`Scores for "${assessment.title}" must be between 0 and ${assessment.max_score}.`, `Las calificaciones de "${assessment.title}" deben estar entre 0 y ${assessment.max_score}.`));
+      return clearDraft();
+    }
+    setGradeError(null);
+    const response = await fetch(`/api/assessments/${assessment.id}/scores`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id_code: studentCode, score })
+    }).catch(() => null);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setGradeError((typeof payload?.detail === "string" && payload.detail) || d("That score could not be saved.", "No se pudo guardar esa calificación."));
+      return clearDraft();
+    }
+    setGradebook((book) => {
+      const assessmentScores = { ...(book.scores[String(assessment.id)] || {}) };
+      if (score === null) delete assessmentScores[studentCode]; else assessmentScores[studentCode] = { score };
+      return { ...book, scores: { ...book.scores, [String(assessment.id)]: assessmentScores } };
+    });
+    clearDraft();
+  };
+
+  const studentAverage = (studentCode: string) => {
+    const percents = gradebook.assessments
+      .map((a) => gradebook.scores[String(a.id)]?.[studentCode]?.score)
+      .map((score, i) => (score === undefined ? null : (score / gradebook.assessments[i].max_score) * 100))
+      .filter((p): p is number => p !== null);
+    return percents.length ? `${(percents.reduce((x, y) => x + y, 0) / percents.length).toFixed(0)}%` : "–";
   };
 
   useEffect(() => {
@@ -1200,6 +1308,134 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
             )}
           </form>
         </div>
+      </div>
+
+      {/* Gradebook: one school at a time, scores typed in by the tutor */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4 min-w-0 text-left">
+        <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-wrap gap-2">
+          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center">
+            <Award size={15} className="text-teal-600 mr-2" />
+            {d("Gradebook", "Calificaciones")}
+          </h3>
+          {schoolSelect(gradeGroupCode, setGradeGroupCode, "bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 focus:outline-hidden")}
+        </div>
+
+        <form onSubmit={handleAddAssessment} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-end">
+          <input
+            type="text"
+            required
+            placeholder={d("Assessment name, e.g. Quiz 1", "Nombre de la evaluación, p. ej. Prueba 1")}
+            value={newAssessmentTitle}
+            onChange={(e) => setNewAssessmentTitle(e.target.value)}
+            className="col-span-2 sm:col-span-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
+          />
+          <label className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500">
+            <span className="whitespace-nowrap">{d("Out of", "Sobre")}</span>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              step="any"
+              required
+              value={newAssessmentMax}
+              onChange={(e) => setNewAssessmentMax(e.target.value)}
+              className="w-full bg-transparent font-bold text-slate-700 focus:outline-hidden"
+            />
+          </label>
+          <input
+            type="date"
+            aria-label={d("Date of the assessment", "Fecha de la evaluación")}
+            value={newAssessmentDate}
+            onChange={(e) => setNewAssessmentDate(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500 focus:outline-hidden"
+          />
+          <button
+            type="submit"
+            className="col-span-2 sm:col-span-1 inline-flex justify-center items-center py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition cursor-pointer"
+          >
+            <Plus size={13} className="mr-1" />
+            {d("Add assessment", "Añadir evaluación")}
+          </button>
+        </form>
+
+        {gradeError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{gradeError}</p>
+        )}
+
+        <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
+          <table className="w-full text-left font-sans text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-slate-400 uppercase text-[10px] font-bold tracking-wider">
+                <th className="p-3 sticky left-0 bg-slate-50">{d("Student", "Estudiante")}</th>
+                {gradebook.assessments.map((assessment: any) => (
+                  <th key={assessment.id} className="p-3 text-center whitespace-nowrap normal-case">
+                    <span className="flex items-center justify-center gap-1 text-slate-600">
+                      {assessment.title}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAssessment(assessment)}
+                        aria-label={d(`Delete ${assessment.title}`, `Eliminar ${assessment.title}`)}
+                        className="text-slate-300 hover:text-rose-600 cursor-pointer"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    </span>
+                    <span className="block font-mono font-semibold">
+                      {d(`out of ${assessment.max_score}`, `sobre ${assessment.max_score}`)}{assessment.assessed_on ? ` · ${assessment.assessed_on}` : ""}
+                    </span>
+                  </th>
+                ))}
+                <th className="p-3 text-right">{d("Average", "Promedio")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {gradebook.students.length === 0 && (
+                <tr>
+                  <td colSpan={gradebook.assessments.length + 2} className="p-6 text-center text-xs text-slate-400 font-semibold">
+                    {d("No students are registered in this school's group yet.", "Aún no hay estudiantes registrados en el grupo de esta escuela.")}
+                  </td>
+                </tr>
+              )}
+              {gradebook.students.map((student: any) => (
+                <tr key={student.student_id_code} className="hover:bg-slate-50">
+                  <td className="p-3 sticky left-0 bg-white">
+                    <span className="block font-semibold text-slate-800 whitespace-nowrap">{student.full_name}</span>
+                    <span className="block font-mono text-[10px] font-bold text-teal-700">{student.student_id_code}</span>
+                  </td>
+                  {gradebook.assessments.map((assessment: any) => {
+                    const key = `${assessment.id}:${student.student_id_code}`;
+                    const stored = gradebook.scores[String(assessment.id)]?.[student.student_id_code]?.score;
+                    return (
+                      <td key={assessment.id} className="p-2 text-center">
+                        <input
+                          type="number"
+                          inputMode="decimal"
+                          min="0"
+                          max={assessment.max_score}
+                          step="any"
+                          aria-label={`${student.full_name}, ${assessment.title}`}
+                          value={gradeDrafts[key] ?? (stored ?? "")}
+                          onChange={(e) => setGradeDrafts((drafts) => ({ ...drafts, [key]: e.target.value }))}
+                          onBlur={() => handleSaveScore(assessment, student.student_id_code)}
+                          onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                          className={`w-16 rounded-lg border px-1.5 py-1 text-center text-[11px] font-bold focus:outline-hidden ${
+                            stored === undefined ? "border-slate-200 bg-white text-slate-400" : "border-teal-200 bg-teal-50 text-teal-800"
+                          }`}
+                        />
+                      </td>
+                    );
+                  })}
+                  <td className="p-3 text-right font-mono font-extrabold text-teal-700">{studentAverage(student.student_id_code)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[11px] text-slate-400 font-semibold">
+          {gradebook.assessments.length === 0
+            ? d("No assessments for this school yet. Add one above, then type each student's score.", "Aún no hay evaluaciones para esta escuela. Añade una arriba y escribe la calificación de cada estudiante.")
+            : d("Scores save when you leave the box. Clear a box to remove a score. Students see their own scores in their portal.", "Las calificaciones se guardan al salir de la casilla. Vacía una casilla para quitar la calificación. Cada estudiante ve sus calificaciones en su portal.")}
+        </p>
       </div>
 
       {/* PUBLISH RECORDED CLASS & ANNOUNCEMENT WORKSPACE */}

@@ -136,6 +136,18 @@ class PortalMessageResponse(BaseModel):
 class PortalMessageReadRequest(BaseModel):
     message_ids: List[int] = Field(max_length=500)
 
+class AssessmentCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    course_level: str = Field(min_length=2, max_length=50)
+    class_group: str = Field(min_length=1, max_length=50)
+    max_score: float = Field(default=100, gt=0, le=1000)
+    assessed_on: Optional[str] = Field(default=None, max_length=20)
+
+class AssessmentScoreUpdate(BaseModel):
+    student_id_code: str = Field(min_length=1, max_length=50)
+    score: Optional[float] = None  # None clears the mark
+    remarks: Optional[str] = Field(default=None, max_length=2000)
+
 class ManualAttendanceUpdate(BaseModel):
     session_id: int
     student_id_code: str
