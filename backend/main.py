@@ -1629,9 +1629,158 @@ def delete_announcement(announcement_id: int, request: Request, db: Session = De
     own_email = str(auth_payload.get("sub") or "").lower()
     if auth_payload.get("role") != roles.DEVELOPER and (announcement.created_by_email or "") != own_email:
         raise HTTPException(status_code=403, detail="You can only delete your own announcements.")
+    db.query(models.AnnouncementState).filter(models.AnnouncementState.announcement_id == announcement.id).delete()
     db.delete(announcement)
     db.commit()
     return {"detail": "Announcement deleted"}
+
+
+@app.get("/api/announcements/state")
+def get_announcement_states(request: Request, db: Session = Depends(get_db)):
+    """Which announcements this student has read and which they removed."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    states = db.query(models.AnnouncementState).filter(models.AnnouncementState.student_id == student.id).all()
+    return {
+        "read": [state.announcement_id for state in states if state.read_at],
+        "hidden": [state.announcement_id for state in states if state.hidden],
+    }
+
+
+@app.put("/api/announcements/{announcement_id}/state")
+def set_announcement_state(announcement_id: int, payload: schemas.AnnouncementStateUpdate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    if not db.query(models.Announcement).filter(models.Announcement.id == announcement_id).first():
+        raise HTTPException(status_code=404, detail="Announcement not found.")
+    state = db.query(models.AnnouncementState).filter(
+        models.AnnouncementState.student_id == student.id,
+        models.AnnouncementState.announcement_id == announcement_id,
+    ).first()
+    if not state:
+        state = models.AnnouncementState(student_id=student.id, announcement_id=announcement_id, hidden=False)
+        db.add(state)
+    if payload.read is not None:
+        state.read_at = (state.read_at or datetime.now(timezone.utc)) if payload.read else None
+    if payload.hidden is not None:
+        state.hidden = payload.hidden
+    db.commit()
+    return {"announcement_id": announcement_id, "read": bool(state.read_at), "hidden": bool(state.hidden)}
+
+
+def _student_note_response(note: models.StudentNote) -> dict:
+    return {"id": note.id, "title": note.title, "content": note.content, "created_at": note.created_at}
+
+
+@app.get("/api/my-notes")
+def list_my_notes(request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    notes = db.query(models.StudentNote).filter(models.StudentNote.student_id == student.id).order_by(models.StudentNote.id.desc()).all()
+    return [_student_note_response(note) for note in notes]
+
+
+@app.post("/api/my-notes")
+def create_my_note(payload: schemas.StudentNoteCreate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    title, content = payload.title.strip(), payload.content.strip()
+    if not title or not content:
+        raise HTTPException(status_code=400, detail="Give the note a title and some text.")
+    note = models.StudentNote(student_id=student.id, title=title, content=content)
+    if payload.created_on:
+        try:
+            note.created_at = datetime.strptime(payload.created_on.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    db.add(note)
+    db.commit()
+    db.refresh(note)
+    return _student_note_response(note)
+
+
+@app.delete("/api/my-notes/{note_id}")
+def delete_my_note(note_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    note = db.query(models.StudentNote).filter(models.StudentNote.id == note_id, models.StudentNote.student_id == student.id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found.")
+    db.delete(note)
+    db.commit()
+    return {"detail": "Note deleted"}
+
+
+def _review_response(review: models.Review, include_status: bool = False) -> dict:
+    data = {
+        "id": review.id,
+        "name": review.name,
+        "location": review.location,
+        "rating": review.rating,
+        "text": review.text,
+        "created_at": review.created_at,
+    }
+    if include_status:
+        data.update({"status": review.status, "reviewed_at": review.reviewed_at, "reviewed_by": review.reviewed_by})
+    return data
+
+
+@app.get("/api/reviews")
+def list_public_reviews(db: Session = Depends(get_db)):
+    """Approved reviews for the public website, newest first."""
+    reviews = db.query(models.Review).filter(models.Review.status == "approved").order_by(models.Review.id.desc()).limit(50).all()
+    return [_review_response(review) for review in reviews]
+
+
+@app.post("/api/reviews")
+def submit_review(payload: schemas.ReviewCreate, db: Session = Depends(get_db)):
+    """Anyone can leave a review; it waits for an admin's approval."""
+    if (payload.website or "").strip():
+        # Honeypot filled in: a bot. Answer as if accepted so it doesn't retry.
+        return {"detail": "Thank you! Your review will appear once it has been approved."}
+    name, text = payload.name.strip(), payload.text.strip()
+    if not name or not text:
+        raise HTTPException(status_code=400, detail="Please add your name and your review.")
+    pending = db.query(models.Review).filter(models.Review.status == "pending").count()
+    if pending >= 200:
+        raise HTTPException(status_code=429, detail="We have a lot of reviews waiting for approval. Please try again later.")
+    duplicate = db.query(models.Review).filter(models.Review.text == text, models.Review.name == name).first()
+    if not duplicate:
+        db.add(models.Review(name=name, location=(payload.location or "").strip() or None, rating=payload.rating, text=text, status="pending"))
+        db.commit()
+    return {"detail": "Thank you! Your review will appear once it has been approved."}
+
+
+@app.get("/api/admin/reviews")
+def list_all_reviews(request: Request, db: Session = Depends(get_db)):
+    _request_auth_payload(request, {roles.DEVELOPER})
+    reviews = db.query(models.Review).order_by(models.Review.id.desc()).all()
+    return [_review_response(review, include_status=True) for review in reviews]
+
+
+@app.put("/api/admin/reviews/{review_id}")
+def set_review_status(review_id: int, payload: schemas.ReviewStatusUpdate, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.DEVELOPER})
+    review = db.query(models.Review).filter(models.Review.id == review_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found.")
+    review.status = payload.status
+    review.reviewed_at = datetime.now(timezone.utc)
+    review.reviewed_by = str(auth_payload.get("sub") or "").lower() or None
+    db.commit()
+    db.refresh(review)
+    return _review_response(review, include_status=True)
+
+
+@app.delete("/api/admin/reviews/{review_id}")
+def delete_review(review_id: int, request: Request, db: Session = Depends(get_db)):
+    _request_auth_payload(request, {roles.DEVELOPER})
+    review = db.query(models.Review).filter(models.Review.id == review_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found.")
+    db.delete(review)
+    db.commit()
+    return {"detail": "Review deleted"}
 
 
 def _tutor_message_identity(payload: dict, db: Session) -> tuple[str, str, set[str]]:

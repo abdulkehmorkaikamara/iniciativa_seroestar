@@ -411,8 +411,24 @@ export default function App() {
   const [activeSyllabus, setActiveSyllabus] = useState<Course | null>(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
 
-  // Dynamic testimonial pool (predefined + user submitted!)
+  // Testimonials: the built-in ones plus visitor reviews an admin has approved.
   const [testimonialList, setTestimonialList] = useState<Testimonial[]>(TESTIMONIALS);
+  useEffect(() => {
+    fetch("/api/reviews")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (!Array.isArray(data)) return;
+        const approved: Testimonial[] = data.map((review: any) => ({
+          id: `review-${review.id}`,
+          name: review.name,
+          location: review.location || "",
+          rating: review.rating,
+          text: review.text
+        }));
+        setTestimonialList([...approved, ...TESTIMONIALS]);
+      })
+      .catch(() => {});
+  }, []);
   
   // Feedback form inputs
   const [feedbackName, setFeedbackName] = useState("");
@@ -420,6 +436,9 @@ export default function App() {
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackText, setFeedbackText] = useState("");
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [feedbackSending, setFeedbackSending] = useState(false);
+  const [feedbackWebsite, setFeedbackWebsite] = useState(""); // honeypot, hidden from people
 
   // Booking Form State
   const [bookName, setBookName] = useState("");
@@ -639,28 +658,38 @@ export default function App() {
     setCurrentPortal(null);
   };
 
-  const handleFeedbackSubmit = (e: React.FormEvent) => {
+  // Reviews are saved on the server and shown once an admin approves them.
+  const handleFeedbackSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!feedbackName || !feedbackText) return;
-
-    const newFeedback: Testimonial = {
-      id: `custom-${Date.now()}`,
-      name: feedbackName,
-      location: feedbackTitle || "Verified Student",
-      rating: feedbackRating,
-      text: feedbackText,
-      avatarUrl: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 900000)}?auto=format&fit=crop&q=80&w=150&h=150`
-    };
-
-    setTestimonialList((prev) => [newFeedback, ...prev]);
+    if (!feedbackName.trim() || !feedbackText.trim()) return;
+    setFeedbackSending(true);
+    setFeedbackError(null);
+    const response = await fetch("/api/reviews", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: feedbackName.trim(),
+        location: feedbackTitle.trim() || null,
+        rating: feedbackRating,
+        text: feedbackText.trim(),
+        website: feedbackWebsite
+      })
+    }).catch(() => null);
+    setFeedbackSending(false);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setFeedbackError(
+        (typeof payload?.detail === "string" && payload.detail) ||
+        (courseLang === "EN" ? "Your review could not be sent. Please try again." : "No se pudo enviar tu reseña. Inténtalo de nuevo.")
+      );
+      return;
+    }
     setFeedbackSuccess(true);
-    setTimeout(() => {
-      setFeedbackSuccess(false);
-      setFeedbackName("");
-      setFeedbackTitle("");
-      setFeedbackRating(5);
-      setFeedbackText("");
-    }, 4000);
+    setFeedbackName("");
+    setFeedbackTitle("");
+    setFeedbackRating(5);
+    setFeedbackText("");
+    setTimeout(() => setFeedbackSuccess(false), 8000);
   };
 
   const handleBookingSubmit = (e: React.FormEvent) => {
@@ -1647,13 +1676,19 @@ Spanish:
                       </div>
 
                       <div className="flex space-x-4 items-center mb-4">
-                        <img
-                          loading="lazy"
-                          src={test.avatarUrl}
-                          alt={test.name}
-                          referrerPolicy="no-referrer"
-                          className="w-11 h-11 rounded-full object-cover border-2 border-orange-100 shadow-xs"
-                        />
+                        {test.avatarUrl ? (
+                          <img
+                            loading="lazy"
+                            src={test.avatarUrl}
+                            alt={test.name}
+                            referrerPolicy="no-referrer"
+                            className="w-11 h-11 rounded-full object-cover border-2 border-orange-100 shadow-xs"
+                          />
+                        ) : (
+                          <div aria-hidden="true" className="w-11 h-11 rounded-full shrink-0 bg-orange-100 text-orange-700 border-2 border-orange-100 flex items-center justify-center font-black text-sm">
+                            {test.name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("")}
+                          </div>
+                        )}
                         <div>
                           <h4 className="font-sans font-bold text-slate-900 text-sm leading-none">{test.name}</h4>
                           <span className="text-[11px] text-slate-400 leading-none">{test.location}</span>
@@ -1702,7 +1737,7 @@ Spanish:
                     </div>
                     <div>
                       <h4 className="text-sm font-bold text-white">¡Muchas Gracias!</h4>
-                      <p className="text-xs text-slate-400 mt-1">{courseLang === "EN" ? "Your review is published, and is live in the public display feed." : "Tu reseña ha sido publicada y ya aparece en la sección pública."}</p>
+                      <p className="text-xs text-slate-400 mt-1">{courseLang === "EN" ? "Thank you! Your review will appear on the website once our team has approved it." : "¡Gracias! Tu reseña aparecerá en la web cuando nuestro equipo la apruebe."}</p>
                     </div>
                   </div>
                 ) : (
@@ -1714,6 +1749,7 @@ Spanish:
                         <input
                           type="text"
                           required
+                          maxLength={100}
                           value={feedbackName}
                           onChange={(e) => setFeedbackName(e.target.value)}
                           placeholder={courseLang === "EN" ? "e.g. Sarah J." : "p. ej., Sarah J."}
@@ -1726,6 +1762,7 @@ Spanish:
                         <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300">{courseLang === "EN" ? "Profession / City" : "Profesión / Ciudad"}</label>
                         <input
                           type="text"
+                          maxLength={100}
                           value={feedbackTitle}
                           onChange={(e) => setFeedbackTitle(e.target.value)}
                           placeholder={courseLang === "EN" ? "e.g. Chicago, USA" : "p. ej., Madrid, España"}
@@ -1762,6 +1799,7 @@ Spanish:
                       <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300">{courseLang === "EN" ? "Your Experience" : "Tu experiencia"}</label>
                       <textarea
                         required
+                        maxLength={1500}
                         value={feedbackText}
                         onChange={(e) => setFeedbackText(e.target.value)}
                         placeholder={courseLang === "EN" ? "Explain how Iniciativa Ser o Estar changed your learning paradigm..." : "Cuéntanos cómo Iniciativa Ser o Estar transformó tu forma de aprender..."}
@@ -1770,11 +1808,32 @@ Spanish:
                       />
                     </div>
 
+                    {/* Hidden from people; bots that fill every field reveal themselves here. */}
+                    <input
+                      type="text"
+                      name="website"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      aria-hidden="true"
+                      value={feedbackWebsite}
+                      onChange={(e) => setFeedbackWebsite(e.target.value)}
+                      className="absolute -left-[9999px] w-px h-px opacity-0"
+                    />
+
+                    {feedbackError && (
+                      <p role="alert" className="rounded-lg border border-rose-400/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">{feedbackError}</p>
+                    )}
+
+                    <p className="text-[10px] text-indigo-300/80">
+                      {courseLang === "EN" ? "Reviews are checked by our team before they appear on the website." : "Nuestro equipo revisa las reseñas antes de publicarlas en la web."}
+                    </p>
+
                     <button
                       type="submit"
-                      className="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white rounded-xl text-xs font-bold font-sans tracking-wide uppercase transition shadow-md shadow-orange-950/20 flex items-center justify-center space-x-1.5"
+                      disabled={feedbackSending}
+                      className="w-full py-3 px-4 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold font-sans tracking-wide uppercase transition shadow-md shadow-orange-950/20 flex items-center justify-center space-x-1.5"
                     >
-                      <span>{courseLang === "EN" ? "Submit Feedback" : "Enviar opinión"}</span>
+                      <span>{feedbackSending ? (courseLang === "EN" ? "Sending..." : "Enviando...") : (courseLang === "EN" ? "Submit Feedback" : "Enviar opinión")}</span>
                       <Send size={11} />
                     </button>
                   </form>

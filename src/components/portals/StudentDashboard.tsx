@@ -114,6 +114,33 @@ function getWelcomeLetter(courseLevel: string, classGroup: string) {
   return WELCOME_LETTERS[`${classGroupInfo.level}-G${classGroupInfo.group}`] || null;
 }
 
+// Earlier versions kept a student's notes and announcement state in this
+// browser only. moveLocalOnce hands what is stored under `key` to `upload`,
+// which returns the items it could not send; those stay in the browser for
+// the next visit and the rest are forgotten. Repeat calls share one upload.
+const localMoves = new Map<string, Promise<void>>();
+function moveLocalOnce(key: string, upload: (items: any[]) => Promise<any[]>): Promise<void> {
+  if (!localMoves.has(key)) {
+    let items: any[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+      items = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      items = [];
+    }
+    const keepUnsent = (unsent: any[]) => {
+      try {
+        if (unsent.length) localStorage.setItem(key, JSON.stringify(unsent));
+        else localStorage.removeItem(key);
+      } catch {
+        // Storage unavailable; nothing to clean up.
+      }
+    };
+    localMoves.set(key, items.length ? upload(items).then(keepUnsent, () => {}) : Promise.resolve());
+  }
+  return localMoves.get(key)!;
+}
+
 export default function StudentDashboard({ onExit, registeredStudent, onOpenChatbot, lang = "EN" }: StudentDashboardProps) {
   const t = TRANSLATIONS[lang];
   const d = (en: string, es: string) => lang === "ES" ? es : en;
@@ -157,34 +184,18 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const unreadMessages = useUnreadMessages("student");
 
   // State
-  const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>(() => {
-    const saved = localStorage.getItem(`notes_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Personal notes live on the server so they follow the student to any device.
+  const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
   const [newNoteTitle, setNewNoteTitle] = useState("");
   const [newNoteContent, setNewNoteContent] = useState("");
   const [personalNotesSearch, setPersonalNotesSearch] = useState("");
 
   // Tutor announcements for this student's school, loaded from the backend.
   const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; text: string; date: string; type: string; instructor: string }>>([]);
-  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`announcement_reads_${student.studentIdCode}`);
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`announcement_deleted_${student.studentIdCode}`);
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  // Which announcements the student has read or removed, kept on the server.
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>([]);
+  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>([]);
 
   // Grades the tutor records in their gradebook. An assessment without a
   // score yet is shown as pending.
@@ -250,8 +261,64 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [portalTutors, setPortalTutors] = useState(TUTOR_PROFILES.filter(isGroupTutor));
 
   useEffect(() => {
-    localStorage.setItem(`notes_${student.studentIdCode}`, JSON.stringify(personalNotes));
-  }, [personalNotes, student.studentIdCode]);
+    const toNote = (note: any) => ({ id: String(note.id), title: note.title, content: note.content, date: String(note.created_at || "").slice(0, 10) });
+    const load = async () => {
+      await moveLocalOnce(`notes_${student.studentIdCode}`, async (localNotes) => {
+        const unsent: any[] = [];
+        // Oldest first, so the newest note ends up on top.
+        for (const note of [...localNotes].reverse()) {
+          if (!note?.title || !note?.content) continue;
+          const response = await fetch("/api/my-notes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: String(note.title).slice(0, 255), content: String(note.content), created_on: note.date || null })
+          }).catch(() => null);
+          if (!response?.ok) unsent.unshift(note);
+        }
+        return unsent;
+      });
+      const response = await fetch("/api/my-notes").catch(() => null);
+      const data = response?.ok ? await response.json().catch(() => []) : [];
+      setPersonalNotes(Array.isArray(data) ? data.map(toNote) : []);
+    };
+    load();
+  }, [student.studentIdCode]);
+
+  useEffect(() => {
+    const announcementNumber = (id: string) => Number(String(id).replace(/^ann-/, ""));
+    const load = async () => {
+      const moveIds = (body: { read: boolean; hidden?: boolean }) => async (ids: any[]) => {
+        const unsent: any[] = [];
+        for (const id of ids) {
+          const number = announcementNumber(id);
+          if (!Number.isInteger(number) || number <= 0) continue;
+          const response = await fetch(`/api/announcements/${number}/state`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }).catch(() => null);
+          // A deleted announcement (404) has nothing left to remember.
+          if (!response || (!response.ok && response.status !== 404)) unsent.push(id);
+        }
+        return unsent;
+      };
+      await moveLocalOnce(`announcement_reads_${student.studentIdCode}`, moveIds({ read: true }));
+      await moveLocalOnce(`announcement_deleted_${student.studentIdCode}`, moveIds({ read: true, hidden: true }));
+      const response = await fetch("/api/announcements/state").catch(() => null);
+      const data = response?.ok ? await response.json().catch(() => null) : null;
+      if (!data) return;
+      setReadAnnouncementIds((data.read || []).map((id: number) => `ann-${id}`));
+      setDeletedAnnouncementIds((data.hidden || []).map((id: number) => `ann-${id}`));
+    };
+    load();
+  }, [student.studentIdCode]);
+
+  const saveAnnouncementState = (id: string, body: { read?: boolean; hidden?: boolean }) =>
+    fetch(`/api/announcements/${String(id).replace(/^ann-/, "")}/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).catch(() => null);
 
   useEffect(() => {
     fetch("/api/tutors")
@@ -376,14 +443,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   }, [student.studentIdCode, homeworkRefresh]);
 
   useEffect(() => {
-    localStorage.setItem(`announcement_reads_${student.studentIdCode}`, JSON.stringify(readAnnouncementIds));
-  }, [readAnnouncementIds, student.studentIdCode]);
-
-  useEffect(() => {
-    localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
-  }, [deletedAnnouncementIds, student.studentIdCode]);
-
-  useEffect(() => {
     const loadAnnouncements = () => {
       fetch("/api/announcements")
         .then((res) => res.ok ? res.json() : [])
@@ -408,22 +467,28 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const { messages: chatMessages, error: chatError, send: sendChat } = useLiveChat(activeSession?.id, insideClassRoom);
 
   // Handle Note Creation
-  const handleAddNote = (e: React.FormEvent) => {
+  const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoteTitle || !newNoteContent) return;
-    const newNote = {
-      id: `pnote-${Date.now()}`,
-      title: newNoteTitle,
-      content: newNoteContent,
-      date: new Date().toISOString().split("T")[0]
-    };
-    setPersonalNotes([newNote, ...personalNotes]);
+    if (!newNoteTitle.trim() || !newNoteContent.trim()) return;
+    setNotesError(null);
+    const response = await fetch("/api/my-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newNoteTitle.trim(), content: newNoteContent.trim() })
+    }).catch(() => null);
+    if (!response?.ok) {
+      setNotesError(d("Your note could not be saved. Check your connection and try again.", "No se pudo guardar tu nota. Revisa tu conexión e inténtalo de nuevo."));
+      return;
+    }
+    const note = await response.json();
+    setPersonalNotes((notes) => [{ id: String(note.id), title: note.title, content: note.content, date: String(note.created_at || "").slice(0, 10) }, ...notes]);
     setNewNoteTitle("");
     setNewNoteContent("");
   };
 
   const handleMarkAnnouncementRead = (id: string) => {
     setReadAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
+    saveAnnouncementState(id, { read: true });
   };
 
   const handleDeleteReadAnnouncement = (id: string) => {
@@ -436,10 +501,17 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     );
     if (!confirmed) return;
     setDeletedAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
+    saveAnnouncementState(id, { hidden: true });
   };
 
-  const handleDeleteNote = (id: string) => {
-    setPersonalNotes(personalNotes.filter(n => n.id !== id));
+  const handleDeleteNote = async (id: string) => {
+    setNotesError(null);
+    const response = await fetch(`/api/my-notes/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok && response?.status !== 404) {
+      setNotesError(d("That note could not be deleted. Try again.", "No se pudo eliminar esa nota. Inténtalo de nuevo."));
+      return;
+    }
+    setPersonalNotes((notes) => notes.filter((n) => n.id !== id));
   };
 
   // Phone photos are often bigger than the 4 MB upload limit; shrink large
@@ -1136,6 +1208,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   />
                 </div>
               </div>
+
+              {notesError && (
+                <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{notesError}</p>
+              )}
 
               {/* Composition block */}
               <form onSubmit={handleAddNote} className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">

@@ -17,7 +17,9 @@ import {
   Edit,
   Globe,
   DollarSign,
-  LogOut
+  LogOut,
+  Star,
+  X
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -347,6 +349,50 @@ export default function AdminDashboard({
       })
       .catch((err) => setGoogleError(err?.message || String(err)));
   };
+
+  // Reviews visitors leave on the website wait here until approved.
+  const [reviews, setReviews] = useState<Array<{ id: number; name: string; location?: string | null; rating: number; text: string; status: "pending" | "approved" | "rejected"; created_at?: string }>>([]);
+  const [reviewFilter, setReviewFilter] = useState<"pending" | "approved" | "rejected">("pending");
+  const [reviewError, setReviewError] = useState<string | null>(null);
+
+  const loadReviews = () => {
+    fetch("/api/admin/reviews")
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => setReviews(Array.isArray(data) ? data : []))
+      .catch(() => setReviewError(d("Reviews could not be loaded.", "No se pudieron cargar las reseñas.")));
+  };
+
+  useEffect(() => {
+    loadReviews();
+  }, []);
+
+  const handleReviewStatus = async (id: number, status: "approved" | "rejected" | "pending") => {
+    setReviewError(null);
+    const response = await fetch(`/api/admin/reviews/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status })
+    }).catch(() => null);
+    if (!response?.ok) {
+      setReviewError(d("That review could not be updated.", "No se pudo actualizar esa reseña."));
+      return;
+    }
+    const updated = await response.json();
+    setReviews((list) => list.map((review) => (review.id === id ? updated : review)));
+  };
+
+  const handleDeleteReview = async (id: number) => {
+    if (!window.confirm(d("Delete this review permanently?", "¿Eliminar esta reseña para siempre?"))) return;
+    const response = await fetch(`/api/admin/reviews/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      setReviewError(d("That review could not be deleted.", "No se pudo eliminar esa reseña."));
+      return;
+    }
+    setReviews((list) => list.filter((review) => review.id !== id));
+  };
+
+  const pendingReviewCount = reviews.filter((review) => review.status === "pending").length;
+  const filteredReviews = reviews.filter((review) => review.status === reviewFilter);
 
   useEffect(() => {
     loadGoogleAccounts();
@@ -1235,6 +1281,99 @@ export default function AdminDashboard({
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Website reviews: approve before they appear publicly */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6 space-y-4">
+        <div className="pb-3 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
+          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+            <Star size={14} className="text-orange-500" />
+            {d("Website Reviews", "Reseñas de la Web")}
+            {pendingReviewCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-[10px] normal-case tracking-normal">
+                {d(`${pendingReviewCount} waiting`, `${pendingReviewCount} pendientes`)}
+              </span>
+            )}
+          </h3>
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl" role="tablist">
+            {(["pending", "approved", "rejected"] as const).map((status) => (
+              <button
+                key={status}
+                type="button"
+                role="tab"
+                aria-selected={reviewFilter === status}
+                onClick={() => setReviewFilter(status)}
+                className={`px-3 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${reviewFilter === status ? "bg-white text-slate-900 shadow-xs" : "text-slate-500"}`}
+              >
+                {status === "pending" ? d("Waiting", "Pendientes") : status === "approved" ? d("Approved", "Aprobadas") : d("Rejected", "Rechazadas")}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {reviewError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{reviewError}</p>
+        )}
+
+        {filteredReviews.length === 0 ? (
+          <p className="text-xs text-slate-400 font-semibold">
+            {reviewFilter === "pending"
+              ? d("No reviews waiting for approval.", "No hay reseñas pendientes de aprobación.")
+              : reviewFilter === "approved"
+                ? d("No approved reviews yet.", "Aún no hay reseñas aprobadas.")
+                : d("No rejected reviews.", "No hay reseñas rechazadas.")}
+          </p>
+        ) : (
+          <div className="space-y-3 max-h-[420px] overflow-y-auto">
+            {filteredReviews.map((review) => (
+              <div key={review.id} className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-xs">
+                <div className="flex flex-wrap justify-between items-start gap-2">
+                  <div>
+                    <span className="font-bold text-slate-900">{review.name}</span>
+                    {review.location && <span className="text-slate-400"> · {review.location}</span>}
+                    <span className="block text-[10px] text-slate-400 font-mono">
+                      {review.created_at ? new Date(review.created_at).toLocaleString([], { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : ""}
+                    </span>
+                  </div>
+                  <span className="flex text-orange-400" aria-label={d(`${review.rating} out of 5 stars`, `${review.rating} de 5 estrellas`)}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star key={n} size={13} className={n <= review.rating ? "fill-current" : "text-slate-200"} />
+                    ))}
+                  </span>
+                </div>
+                <p className="text-slate-700 whitespace-pre-line">{review.text}</p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {review.status !== "approved" && (
+                    <button
+                      type="button"
+                      onClick={() => handleReviewStatus(review.id, "approved")}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer"
+                    >
+                      <Check size={12} /> {d("Approve", "Aprobar")}
+                    </button>
+                  )}
+                  {review.status !== "rejected" && (
+                    <button
+                      type="button"
+                      onClick={() => handleReviewStatus(review.id, "rejected")}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-rose-600 font-bold text-[11px] cursor-pointer"
+                    >
+                      <X size={12} /> {review.status === "approved" ? d("Hide from website", "Ocultar de la web") : d("Reject", "Rechazar")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteReview(review.id)}
+                    className="ml-auto p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg cursor-pointer"
+                    title={d("Delete review", "Eliminar reseña")}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Students' Google Workspace accounts */}
