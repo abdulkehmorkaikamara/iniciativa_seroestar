@@ -195,6 +195,21 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Gradebook summary computed from the student's own grades. Scores look
+  // like "94/100", "88%" or "Pending Review"; anything unparseable is skipped.
+  const gradedPercents = gradesList
+    .map((g) => {
+      const frac = g.score.match(/([\d.]+)\s*\/\s*([\d.]+)/);
+      if (frac && Number(frac[2]) > 0) return (Number(frac[1]) / Number(frac[2])) * 100;
+      const pct = g.score.match(/([\d.]+)\s*%/);
+      return pct ? Number(pct[1]) : null;
+    })
+    .filter((n): n is number => n !== null);
+  const averageScore = gradedPercents.length
+    ? gradedPercents.reduce((a, b) => a + b, 0) / gradedPercents.length
+    : null;
+  const pendingGrades = gradesList.filter((g) => g.score === "Pending Review").length;
+
   // Assignments submitted & pending — same reasoning: no fake assignments
   // with deadlines that have already passed for every new student.
   const [assignments, setAssignments] = useState<Array<{ id: string; title: string; deadline: string; status: "Submitted" | "Not Submitted" | "Graded"; score: string; uploadedFile?: string; dateSubmitted?: string }>>(() => {
@@ -1368,18 +1383,22 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Average Score GPA", "Promedio General")}</span>
-                <span className="font-extrabold text-2xl text-slate-800 mt-2 block">93.3%</span>
-                <span className="text-[10px] text-emerald-600 font-bold block mt-1">{d("Status: Summa Cum Laude Honors", "Estado: Honores Summa Cum Laude")}</span>
+                <span className="font-extrabold text-2xl text-slate-800 mt-2 block">{averageScore === null ? "—" : `${averageScore.toFixed(1)}%`}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {averageScore === null
+                    ? d("No graded work yet", "Aún no hay trabajos calificados")
+                    : d(`Across ${gradedPercents.length} graded item${gradedPercents.length === 1 ? "" : "s"}`, `Sobre ${gradedPercents.length} evaluación${gradedPercents.length === 1 ? "" : "es"} calificada${gradedPercents.length === 1 ? "" : "s"}`)}
+                </span>
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Assessed Components", "Componentes Evaluados")}</span>
-                <span className="font-extrabold text-2xl text-slate-800 mt-2 block">3 / 4</span>
-                <span className="text-[10px] text-slate-500 block mt-1">{d("1 review pending grading", "1 revisión pendiente de calificación")}</span>
+                <span className="font-extrabold text-2xl text-slate-800 mt-2 block">{gradedPercents.length} / {gradesList.length}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">{d(`${pendingGrades} pending grading`, `${pendingGrades} pendiente${pendingGrades === 1 ? "" : "s"} de calificación`)}</span>
               </div>
               <div className="bg-slate-50 p-4 rounded-2xl flex flex-col justify-between">
                 <span className="text-[10px] font-bold text-slate-400" style={{ letterSpacing: '0.05em' }}>{d("Affiliated Registrar", "Registro Afiliado")}</span>
                 <span className="font-extrabold text-xs text-teal-800 mt-3 block truncate font-bold">INICIATIVA SER o ESTAR</span>
-                <span className="text-[9px] text-slate-400 block mt-1">{d("Tight SSO security verified", "Seguridad SSO estricta verificada")}</span>
+                <span className="text-[9px] text-slate-400 block mt-1">{d(`Level ${student.courseLevel}`, `Nivel ${student.courseLevel}`)}</span>
               </div>
             </div>
 

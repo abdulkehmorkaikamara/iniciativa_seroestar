@@ -136,7 +136,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
 
     // Newsletter
     newsTitle: "Squeeze Spanish Hacks Directly to Your Inbox",
-    newsDesc: "Join 3,500+ active learners who receive our weekly, 5-minute visual metaphor cheat sheets to bypass boring text tables.",
+    newsDesc: "Join 128+ active learners who receive our weekly, 5-minute visual metaphor cheat sheets to bypass boring text tables.",
     newsPlaceholder: "Enter your email for free cheat sheets...",
     newsBtn: "Get Cheat Sheets",
     newsSuccess: "¡Perfecto! Keep an eye on your spam filters for your first visual PDF cheat sheet.",
@@ -425,7 +425,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
 
     // Newsletter
     newsTitle: "Recibe Trucos de Español Directamente en tu Bandeja de Entrada",
-    newsDesc: "Únete a más de 3,500 estudiantes activos que reciben semanalmente nuestras hojas de trucos visuales de 5 minutos para evitar aburridas tablas de texto.",
+    newsDesc: "Únete a más de 128 estudiantes activos que reciben semanalmente nuestras hojas de trucos visuales de 5 minutos para evitar aburridas tablas de texto.",
     newsPlaceholder: "Ingresa tu correo para recibir hojas de trucos...",
     newsBtn: "Obtener Hojas de Trucos",
     newsSuccess: "¡Perfecto! Revisa tu bandeja de correo no deseado para ver tu primera hoja de trucos visuales en PDF.",

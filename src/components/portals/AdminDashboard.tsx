@@ -654,7 +654,7 @@ export default function AdminDashboard({
   // were removed: they had no corresponding image element on the page at
   // all, so selecting them and "saving" a replacement silently did nothing.
   const websiteImageSlots = [
-    { slot: "Hero Banner", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.jpg" }
+    { slot: "Hero Banner", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.webp" }
   ];
 
   // Submit Blog
