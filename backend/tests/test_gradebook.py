@@ -44,6 +44,14 @@ class GradebookTests(_LiveSessionTestCase):
         self.assertEqual(self._score(assessment_id, student_id_code=code, score=None).status_code, 200)
         self.assertIsNone(self.client.get("/api/grades/me", headers=self._headers(STUDENT)).json()[0]["score"])
 
+    def test_changing_a_score_keeps_the_comment(self):
+        assessment_id = self._create().json()["id"]
+        code = self._student_code()
+        self._score(assessment_id, student_id_code=code, score=15, remarks="Check your verb endings")
+        self.assertEqual(self._score(assessment_id, student_id_code=code, score=16).json()["remarks"], "Check your verb endings")
+        # Sending an empty comment removes it.
+        self.assertIsNone(self._score(assessment_id, student_id_code=code, score=16, remarks="  ").json()["remarks"])
+
     def test_other_schools_assessments_are_hidden_from_the_student(self):
         self._create(title="Other school quiz", class_group="Group 2")
         self.assertEqual(self.client.get("/api/grades/me", headers=self._headers(STUDENT)).json(), [])
