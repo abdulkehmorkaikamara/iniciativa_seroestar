@@ -53,31 +53,31 @@ import { CLASS_GROUPS } from "./groups";
 
 const HERO_SLIDES_EN = [
   {
-    image: "/images/spanish_classroom_hero_1782078041463.jpg",
+    image: "/images/spanish_classroom_hero_1782078041463.webp",
     title: "MASTER SPANISH FROM ZERO.",
     badge: "Ser (Why) vs Estar (How)",
     description: "Interactive online & in-person lessons designed to build confidence in communication with professional Spanish educators. Adult cognitive metaphors designed specifically for English speakers."
   },
   {
-    image: "/images/spain_travel_guide_1782078073592.jpg",
+    image: "/images/spain_travel_guide_1782078073592.webp",
     title: "DISCOVER THE SPANISH WORLD.",
     badge: "Cultural Infusion",
     description: "Connect deeply with the culture, master emotional communication, and experience the richness of native Spanish."
   },
   {
-    image: "/images/ser_estar_mistakes_1782078058079.jpg",
+    image: "/images/ser_estar_mistakes_1782078058079.webp",
     title: "CONQUER GRAMMAR PITFALLS.",
     badge: "Cognitive Pedagogy",
     description: "Unravel confusing grammar rules with ease. Understand the subtle, logical difference between state transformations and core identity descriptors."
   },
   {
-    image: "/images/bilingual_brain_workout_1782078086117.jpg",
+    image: "/images/bilingual_brain_workout_1782078086117.webp",
     title: "BILINGUAL MIND WORKOUT.",
     badge: "Neuroplastic Fitness",
     description: "Forget dry textbooks. Our methodology keeps your mind active through dynamic conversational drills, sensory aids, and personalized feedback."
   },
   {
-    image: "/images/graduation_celebration_1783328370899.jpg",
+    image: "/images/graduation_celebration_1783328370899.webp",
     title: "CELEBRATE YOUR MILESTONES.",
     badge: "Active Graduation Cohort",
     description: "Join a supportive community of adult learners who celebrate every breakthrough together. Experience the joy of real fluency with our structured, social methodology."
@@ -86,31 +86,31 @@ const HERO_SLIDES_EN = [
 
 const HERO_SLIDES_ES = [
   {
-    image: "/images/spanish_classroom_hero_1782078041463.jpg",
+    image: "/images/spanish_classroom_hero_1782078041463.webp",
     title: "DOMINA EL ESPAÑOL DESDE CERO.",
     badge: "Ser (Por qué) vs Estar (Cómo)",
     description: "Lecciones interactivas en línea y presenciales diseñadas para generar confianza en la comunicación con educadores profesionales de español. Metáforas cognitivas para adultos diseñadas específicamente para angloparlantes."
   },
   {
-    image: "/images/spain_travel_guide_1782078073592.jpg",
+    image: "/images/spain_travel_guide_1782078073592.webp",
     title: "DESCUBRE EL MUNDO HISPANO.",
     badge: "Infusión Cultural",
     description: "Conéctate profundamente con la cultura, domina la comunicación emocional y experimenta la riqueza del español nativo."
   },
   {
-    image: "/images/ser_estar_mistakes_1782078058079.jpg",
+    image: "/images/ser_estar_mistakes_1782078058079.webp",
     title: "CONQUISTA LOS ERRORES GRAMATICALES.",
     badge: "Pedagogía Cognitiva",
     description: "Resuelve las confusas reglas gramaticales con facilidad. Comprende la sutil diferencia lógica entre las transformaciones de estado y los descriptores de identidad central."
   },
   {
-    image: "/images/bilingual_brain_workout_1782078086117.jpg",
+    image: "/images/bilingual_brain_workout_1782078086117.webp",
     title: "ENTRENAMIENTO MENTAL BILINGÜE.",
     badge: "Acondicionamiento Neuroplástico",
     description: "Olvídate de los libros de texto aburridos. Nuestra metodología mantiene tu mente activa mediante prácticas de conversación dinámicas, ayudas sensoriales y retroalimentación personalizada."
   },
   {
-    image: "/images/graduation_celebration_1783328370899.jpg",
+    image: "/images/graduation_celebration_1783328370899.webp",
     title: "CELEBRA TUS LOGROS.",
     badge: "Cohorte de Graduación Activa",
     description: "Únete a una comunidad de apoyo de estudiantes adultos que celebran cada logro juntos. Experimenta la alegría de la fluidez real con nuestra metodología estructurada y social."
@@ -1254,7 +1254,7 @@ Spanish:
             <div className="bg-white rounded-3xl overflow-hidden shadow-md border border-slate-200/60 grid grid-cols-1 md:grid-cols-12 gap-0">
               <div className="md:col-span-7 relative aspect-[3/2] md:aspect-auto md:min-h-[430px] overflow-hidden bg-orange-50">
                 <img
-                  src="/images/vibrant_community_warm_studio.png"
+                  src="/images/vibrant_community_warm_studio.webp"
                   alt={courseLang === "EN" ? "Iniciativa Ser o Estar students and instructors celebrating graduation" : "Estudiantes e instructores de Iniciativa Ser o Estar celebrando la graduación"}
                   referrerPolicy="no-referrer"
                   className="absolute inset-0 w-full h-full object-cover object-center"
@@ -1648,6 +1648,7 @@ Spanish:
 
                       <div className="flex space-x-4 items-center mb-4">
                         <img
+                          loading="lazy"
                           src={test.avatarUrl}
                           alt={test.name}
                           referrerPolicy="no-referrer"
@@ -1668,6 +1669,7 @@ Spanish:
                           test.imageFit === "contain" ? "max-h-[560px] bg-black" : "max-h-[360px]"
                         }`}>
                           <img
+                            loading="lazy"
                             src={test.imageUrl}
                             alt={courseLang === "EN" ? `${test.name} graduation milestone` : `Hito de graduación de ${test.name}`}
                             referrerPolicy="no-referrer"
@@ -1880,7 +1882,8 @@ Spanish:
               >
                 <div className="absolute inset-0 bg-radial-gradient from-transparent to-[#efe7da]/30 pointer-events-none" />
                 <img
-                  src="/images/founder_viviana.jpeg"
+                  loading="lazy"
+                  src="/images/founder_viviana.webp"
                   alt="Viviana"
                   className="w-28 h-28 rounded-full object-cover object-top shadow-md shrink-0"
                 />
@@ -2041,7 +2044,8 @@ Spanish:
                     {/* Stylized Avatar header with lettermark */}
                     <div className="flex items-center space-x-4">
                       <img
-                        src="/images/team_xiomara.jpg"
+                        loading="lazy"
+                        src="/images/team_xiomara.webp"
                         alt="Xiomara"
                         className="w-14 h-14 rounded-2xl object-cover object-top shadow-md shrink-0"
                       />
@@ -2080,7 +2084,8 @@ Spanish:
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
                       <img
-                        src="/images/team_ivoneth.jpg"
+                        loading="lazy"
+                        src="/images/team_ivoneth.webp"
                         alt="Ivoneth"
                         className="w-14 h-14 rounded-2xl object-cover object-top shadow-md shrink-0"
                       />
@@ -2119,7 +2124,8 @@ Spanish:
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
                       <img
-                        src="/images/team_guerly.jpg"
+                        loading="lazy"
+                        src="/images/team_guerly.webp"
                         alt="Guerly"
                         className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
                       />
@@ -2158,7 +2164,8 @@ Spanish:
                   <div className="space-y-4">
                     <div className="flex items-center space-x-4">
                       <img
-                        src="/images/team_abdul.jpg"
+                        loading="lazy"
+                        src="/images/team_abdul.webp"
                         alt="Abdul"
                         className="w-14 h-14 rounded-2xl object-cover shadow-md shrink-0"
                       />
