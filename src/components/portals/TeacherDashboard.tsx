@@ -503,11 +503,16 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   const [newAssessmentTitle, setNewAssessmentTitle] = useState("");
   const [newAssessmentMax, setNewAssessmentMax] = useState("100");
   const [newAssessmentDate, setNewAssessmentDate] = useState("");
+  // The score whose comment the tutor is writing, and the text so far.
+  const [commentTarget, setCommentTarget] = useState<{ assessment: any; student: any } | null>(null);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentSaving, setCommentSaving] = useState(false);
 
   useEffect(() => {
     const group = groupByCode(gradeGroupCode);
     setGradeError(null);
     setGradeDrafts({});
+    setCommentTarget(null);
     fetch(`/api/tutor/gradebook?course_level=${group.level}&class_group=${encodeURIComponent(classGroupValue(group))}`)
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((data) => setGradebook(data))
@@ -587,10 +592,44 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
     }
     setGradebook((book) => {
       const assessmentScores = { ...(book.scores[String(assessment.id)] || {}) };
-      if (score === null) delete assessmentScores[studentCode]; else assessmentScores[studentCode] = { score };
+      if (score === null) delete assessmentScores[studentCode];
+      else assessmentScores[studentCode] = { ...assessmentScores[studentCode], score };
       return { ...book, scores: { ...book.scores, [String(assessment.id)]: assessmentScores } };
     });
     clearDraft();
+  };
+
+  const openComment = (assessment: any, student: any) => {
+    setGradeError(null);
+    setCommentTarget({ assessment, student });
+    setCommentDraft(gradebook.scores[String(assessment.id)]?.[student.student_id_code]?.remarks || "");
+  };
+
+  const handleSaveComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!commentTarget) return;
+    const { assessment, student } = commentTarget;
+    const stored = gradebook.scores[String(assessment.id)]?.[student.student_id_code];
+    if (!stored) return;
+    setCommentSaving(true);
+    setGradeError(null);
+    const response = await fetch(`/api/assessments/${assessment.id}/scores`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id_code: student.student_id_code, score: stored.score, remarks: commentDraft })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setCommentSaving(false);
+    if (!response?.ok) {
+      setGradeError((typeof payload?.detail === "string" && payload.detail) || d("That comment could not be saved.", "No se pudo guardar ese comentario."));
+      return;
+    }
+    setGradebook((book) => {
+      const assessmentScores = { ...(book.scores[String(assessment.id)] || {}) };
+      assessmentScores[student.student_id_code] = { score: payload.score, remarks: payload.remarks };
+      return { ...book, scores: { ...book.scores, [String(assessment.id)]: assessmentScores } };
+    });
+    setCommentTarget(null);
   };
 
   const studentAverage = (studentCode: string) => {
@@ -1405,8 +1444,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                   {gradebook.assessments.map((assessment: any) => {
                     const key = `${assessment.id}:${student.student_id_code}`;
                     const stored = gradebook.scores[String(assessment.id)]?.[student.student_id_code]?.score;
+                    const remarks = gradebook.scores[String(assessment.id)]?.[student.student_id_code]?.remarks;
+                    const isEditing = commentTarget?.assessment.id === assessment.id && commentTarget?.student.student_id_code === student.student_id_code;
                     return (
-                      <td key={assessment.id} className="p-2 text-center">
+                      <td key={assessment.id} className="p-2 text-center whitespace-nowrap">
                         <input
                           type="number"
                           inputMode="decimal"
@@ -1422,6 +1463,21 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
                             stored === undefined ? "border-slate-200 bg-white text-slate-400" : "border-teal-200 bg-teal-50 text-teal-800"
                           }`}
                         />
+                        <button
+                          type="button"
+                          disabled={stored === undefined}
+                          onClick={() => openComment(assessment, student)}
+                          aria-label={d(`Comment for ${student.full_name}, ${assessment.title}`, `Comentario para ${student.full_name}, ${assessment.title}`)}
+                          title={stored === undefined ? d("Enter a score first", "Primero escribe una calificación") : (remarks || d("Add a comment", "Añadir un comentario"))}
+                          className={`ml-1 align-middle p-1 rounded-md transition ${
+                            stored === undefined ? "text-slate-200 cursor-not-allowed"
+                              : isEditing ? "bg-teal-600 text-white cursor-pointer"
+                              : remarks ? "text-teal-600 hover:bg-teal-50 cursor-pointer"
+                              : "text-slate-300 hover:text-teal-600 hover:bg-teal-50 cursor-pointer"
+                          }`}
+                        >
+                          <MessageSquare size={12} fill={remarks && !isEditing ? "currentColor" : "none"} />
+                        </button>
                       </td>
                     );
                   })}
@@ -1431,10 +1487,52 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
             </tbody>
           </table>
         </div>
+        {commentTarget && gradebook.scores[String(commentTarget.assessment.id)]?.[commentTarget.student.student_id_code] && (
+          <form onSubmit={handleSaveComment} className="rounded-2xl border border-teal-200 bg-teal-50/60 p-4 space-y-2">
+            <label htmlFor="grade-comment" className="block text-[11px] font-bold text-teal-900">
+              {d(
+                `Comment for ${commentTarget.student.full_name} on "${commentTarget.assessment.title}"`,
+                `Comentario para ${commentTarget.student.full_name} en "${commentTarget.assessment.title}"`
+              )}
+            </label>
+            <textarea
+              id="grade-comment"
+              autoFocus
+              rows={3}
+              maxLength={2000}
+              value={commentDraft}
+              onChange={(e) => setCommentDraft(e.target.value)}
+              placeholder={d("e.g. Great progress! Review the verb endings for ser and estar.", "p. ej. ¡Buen progreso! Repasa las terminaciones de ser y estar.")}
+              className="w-full bg-white border border-teal-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] text-teal-800/70 font-semibold">
+                {d("The student sees this under their score. Leave it empty to remove the comment.", "El estudiante lo verá bajo su calificación. Déjalo vacío para quitar el comentario.")}
+              </span>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCommentTarget(null)}
+                  className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 font-bold text-xs cursor-pointer"
+                >
+                  {d("Cancel", "Cancelar")}
+                </button>
+                <button
+                  type="submit"
+                  disabled={commentSaving}
+                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:opacity-60 text-white font-bold text-xs cursor-pointer"
+                >
+                  {commentSaving ? d("Saving...", "Guardando...") : d("Save comment", "Guardar comentario")}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
         <p className="text-[11px] text-slate-400 font-semibold">
           {gradebook.assessments.length === 0
             ? d("No assessments for this school yet. Add one above, then type each student's score.", "Aún no hay evaluaciones para esta escuela. Añade una arriba y escribe la calificación de cada estudiante.")
-            : d("Scores save when you leave the box. Clear a box to remove a score. Students see their own scores in their portal.", "Las calificaciones se guardan al salir de la casilla. Vacía una casilla para quitar la calificación. Cada estudiante ve sus calificaciones en su portal.")}
+            : d("Scores save when you leave the box. Clear a box to remove a score. Click the speech bubble next to a score to add a comment. Students see their own scores and comments in their portal.", "Las calificaciones se guardan al salir de la casilla. Vacía una casilla para quitar la calificación. Haz clic en el globo junto a una calificación para añadir un comentario. Cada estudiante ve sus calificaciones y comentarios en su portal.")}
         </p>
       </div>
 

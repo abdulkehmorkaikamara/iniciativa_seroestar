@@ -1936,7 +1936,9 @@ def set_assessment_score(assessment_id: int, payload: schemas.AssessmentScoreUpd
         return {"student_id_code": student.student_id_code, "score": None, "remarks": None}
     if not 0 <= payload.score <= assessment.max_score:
         raise HTTPException(status_code=400, detail=f"Score must be between 0 and {assessment.max_score:g}.")
-    remarks = (payload.remarks or "").strip() or None
+    # Saving only a score keeps the existing comment; send remarks to change it.
+    keep_remarks = "remarks" not in payload.model_fields_set
+    remarks = (row.remarks if row and keep_remarks else (payload.remarks or "").strip() or None)
     if row:
         row.score = payload.score
         row.remarks = remarks
