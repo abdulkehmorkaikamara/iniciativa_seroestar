@@ -114,6 +114,33 @@ function getWelcomeLetter(courseLevel: string, classGroup: string) {
   return WELCOME_LETTERS[`${classGroupInfo.level}-G${classGroupInfo.group}`] || null;
 }
 
+// Earlier versions kept a student's notes and announcement state in this
+// browser only. moveLocalOnce hands what is stored under `key` to `upload`,
+// which returns the items it could not send; those stay in the browser for
+// the next visit and the rest are forgotten. Repeat calls share one upload.
+const localMoves = new Map<string, Promise<void>>();
+function moveLocalOnce(key: string, upload: (items: any[]) => Promise<any[]>): Promise<void> {
+  if (!localMoves.has(key)) {
+    let items: any[] = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+      items = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      items = [];
+    }
+    const keepUnsent = (unsent: any[]) => {
+      try {
+        if (unsent.length) localStorage.setItem(key, JSON.stringify(unsent));
+        else localStorage.removeItem(key);
+      } catch {
+        // Storage unavailable; nothing to clean up.
+      }
+    };
+    localMoves.set(key, items.length ? upload(items).then(keepUnsent, () => {}) : Promise.resolve());
+  }
+  return localMoves.get(key)!;
+}
+
 export default function StudentDashboard({ onExit, registeredStudent, onOpenChatbot, lang = "EN" }: StudentDashboardProps) {
   const t = TRANSLATIONS[lang];
   const d = (en: string, es: string) => lang === "ES" ? es : en;
@@ -157,34 +184,18 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const unreadMessages = useUnreadMessages("student");
 
   // State
-  const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>(() => {
-    const saved = localStorage.getItem(`notes_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [];
-  });
+  // Personal notes live on the server so they follow the student to any device.
+  const [personalNotes, setPersonalNotes] = useState<Array<{ id: string; title: string; content: string; date: string }>>([]);
+  const [notesError, setNotesError] = useState<string | null>(null);
   const [newNoteTitle, setNewNoteTitle] = useState("");
   const [newNoteContent, setNewNoteContent] = useState("");
   const [personalNotesSearch, setPersonalNotesSearch] = useState("");
 
   // Tutor announcements for this student's school, loaded from the backend.
   const [announcements, setAnnouncements] = useState<Array<{ id: string; title: string; text: string; date: string; type: string; instructor: string }>>([]);
-  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`announcement_reads_${student.studentIdCode}`);
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
-  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`announcement_deleted_${student.studentIdCode}`);
-      const parsed = saved ? JSON.parse(saved) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  // Which announcements the student has read or removed, kept on the server.
+  const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>([]);
+  const [deletedAnnouncementIds, setDeletedAnnouncementIds] = useState<string[]>([]);
 
   // Grades the tutor records in their gradebook. An assessment without a
   // score yet is shown as pending.
@@ -205,17 +216,18 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     : null;
   const pendingGrades = gradesList.filter((g) => g.score === null).length;
 
-  // Assignments submitted & pending — same reasoning: no fake assignments
-  // with deadlines that have already passed for every new student.
-  const [assignments, setAssignments] = useState<Array<{ id: string; title: string; deadline: string; status: "Submitted" | "Not Submitted" | "Graded"; score: string; uploadedFile?: string; dateSubmitted?: string }>>(() => {
-    const saved = localStorage.getItem(`assignments_${student.studentIdCode}`);
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  // Interactive Upload Assignment Fields
-  const [selectedAsgId, setSelectedAsgId] = useState(assignments[0]?.id || "");
-  const [homeworkFileMockName, setHomeworkFileMockName] = useState("");
-  const [homeworkSuccess, setHomeworkSuccess] = useState(false);
+  // Homework the group's tutor set, with what this student handed in.
+  type HomeworkItem = {
+    id: number; title: string; instructions?: string | null; due_date?: string | null; max_score: number | null; created_by?: string;
+    submission: { file_url: string; file_name: string; file_size?: string; note?: string | null; submitted_at: string; late: boolean } | null;
+    score: number | null; remarks?: string | null;
+  };
+  const [homeworkList, setHomeworkList] = useState<HomeworkItem[]>([]);
+  const [homeworkRefresh, setHomeworkRefresh] = useState(0);
+  const [homeworkFiles, setHomeworkFiles] = useState<Record<number, File | null>>({});
+  const [homeworkNotes, setHomeworkNotes] = useState<Record<number, string>>({});
+  const [homeworkUploadingId, setHomeworkUploadingId] = useState<number | null>(null);
+  const [homeworkStatus, setHomeworkStatus] = useState<{ id: number; type: "success" | "error"; message: string } | null>(null);
 
   // File Upload State Simulation for Materials locker — no fake starter
   // file; a brand new student has not uploaded anything yet.
@@ -249,8 +261,64 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [portalTutors, setPortalTutors] = useState(TUTOR_PROFILES.filter(isGroupTutor));
 
   useEffect(() => {
-    localStorage.setItem(`notes_${student.studentIdCode}`, JSON.stringify(personalNotes));
-  }, [personalNotes, student.studentIdCode]);
+    const toNote = (note: any) => ({ id: String(note.id), title: note.title, content: note.content, date: String(note.created_at || "").slice(0, 10) });
+    const load = async () => {
+      await moveLocalOnce(`notes_${student.studentIdCode}`, async (localNotes) => {
+        const unsent: any[] = [];
+        // Oldest first, so the newest note ends up on top.
+        for (const note of [...localNotes].reverse()) {
+          if (!note?.title || !note?.content) continue;
+          const response = await fetch("/api/my-notes", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: String(note.title).slice(0, 255), content: String(note.content), created_on: note.date || null })
+          }).catch(() => null);
+          if (!response?.ok) unsent.unshift(note);
+        }
+        return unsent;
+      });
+      const response = await fetch("/api/my-notes").catch(() => null);
+      const data = response?.ok ? await response.json().catch(() => []) : [];
+      setPersonalNotes(Array.isArray(data) ? data.map(toNote) : []);
+    };
+    load();
+  }, [student.studentIdCode]);
+
+  useEffect(() => {
+    const announcementNumber = (id: string) => Number(String(id).replace(/^ann-/, ""));
+    const load = async () => {
+      const moveIds = (body: { read: boolean; hidden?: boolean }) => async (ids: any[]) => {
+        const unsent: any[] = [];
+        for (const id of ids) {
+          const number = announcementNumber(id);
+          if (!Number.isInteger(number) || number <= 0) continue;
+          const response = await fetch(`/api/announcements/${number}/state`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          }).catch(() => null);
+          // A deleted announcement (404) has nothing left to remember.
+          if (!response || (!response.ok && response.status !== 404)) unsent.push(id);
+        }
+        return unsent;
+      };
+      await moveLocalOnce(`announcement_reads_${student.studentIdCode}`, moveIds({ read: true }));
+      await moveLocalOnce(`announcement_deleted_${student.studentIdCode}`, moveIds({ read: true, hidden: true }));
+      const response = await fetch("/api/announcements/state").catch(() => null);
+      const data = response?.ok ? await response.json().catch(() => null) : null;
+      if (!data) return;
+      setReadAnnouncementIds((data.read || []).map((id: number) => `ann-${id}`));
+      setDeletedAnnouncementIds((data.hidden || []).map((id: number) => `ann-${id}`));
+    };
+    load();
+  }, [student.studentIdCode]);
+
+  const saveAnnouncementState = (id: string, body: { read?: boolean; hidden?: boolean }) =>
+    fetch(`/api/announcements/${String(id).replace(/^ann-/, "")}/state`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).catch(() => null);
 
   useEffect(() => {
     fetch("/api/tutors")
@@ -368,16 +436,11 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   }, [student.studentIdCode, student.courseLevel]);
 
   useEffect(() => {
-    localStorage.setItem(`assignments_${student.studentIdCode}`, JSON.stringify(assignments));
-  }, [assignments, student.studentIdCode]);
-
-  useEffect(() => {
-    localStorage.setItem(`announcement_reads_${student.studentIdCode}`, JSON.stringify(readAnnouncementIds));
-  }, [readAnnouncementIds, student.studentIdCode]);
-
-  useEffect(() => {
-    localStorage.setItem(`announcement_deleted_${student.studentIdCode}`, JSON.stringify(deletedAnnouncementIds));
-  }, [deletedAnnouncementIds, student.studentIdCode]);
+    fetch("/api/homework/me")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => setHomeworkList(Array.isArray(data) ? data : []))
+      .catch(() => setHomeworkList([]));
+  }, [student.studentIdCode, homeworkRefresh]);
 
   useEffect(() => {
     const loadAnnouncements = () => {
@@ -404,22 +467,28 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const { messages: chatMessages, error: chatError, send: sendChat } = useLiveChat(activeSession?.id, insideClassRoom);
 
   // Handle Note Creation
-  const handleAddNote = (e: React.FormEvent) => {
+  const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newNoteTitle || !newNoteContent) return;
-    const newNote = {
-      id: `pnote-${Date.now()}`,
-      title: newNoteTitle,
-      content: newNoteContent,
-      date: new Date().toISOString().split("T")[0]
-    };
-    setPersonalNotes([newNote, ...personalNotes]);
+    if (!newNoteTitle.trim() || !newNoteContent.trim()) return;
+    setNotesError(null);
+    const response = await fetch("/api/my-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newNoteTitle.trim(), content: newNoteContent.trim() })
+    }).catch(() => null);
+    if (!response?.ok) {
+      setNotesError(d("Your note could not be saved. Check your connection and try again.", "No se pudo guardar tu nota. Revisa tu conexión e inténtalo de nuevo."));
+      return;
+    }
+    const note = await response.json();
+    setPersonalNotes((notes) => [{ id: String(note.id), title: note.title, content: note.content, date: String(note.created_at || "").slice(0, 10) }, ...notes]);
     setNewNoteTitle("");
     setNewNoteContent("");
   };
 
   const handleMarkAnnouncementRead = (id: string) => {
     setReadAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
+    saveAnnouncementState(id, { read: true });
   };
 
   const handleDeleteReadAnnouncement = (id: string) => {
@@ -432,44 +501,63 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     );
     if (!confirmed) return;
     setDeletedAnnouncementIds((current) => current.includes(id) ? current : [...current, id]);
+    saveAnnouncementState(id, { hidden: true });
   };
 
-  const handleDeleteNote = (id: string) => {
-    setPersonalNotes(personalNotes.filter(n => n.id !== id));
+  const handleDeleteNote = async (id: string) => {
+    setNotesError(null);
+    const response = await fetch(`/api/my-notes/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok && response?.status !== 404) {
+      setNotesError(d("That note could not be deleted. Try again.", "No se pudo eliminar esa nota. Inténtalo de nuevo."));
+      return;
+    }
+    setPersonalNotes((notes) => notes.filter((n) => n.id !== id));
   };
 
-  // Submit Assignment Upload Handler
-  const handleAddAssignmentSubmission = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!homeworkFileMockName || !selectedAsgId) return;
+  // Phone photos are often bigger than the 4 MB upload limit; shrink large
+  // JPG/PNG photos in the browser before sending. Other files go as they are.
+  const shrinkPhoto = async (file: File): Promise<File> => {
+    if (!/^image\/(jpeg|png)$/.test(file.type) || file.size <= 3 * 1024 * 1024) return file;
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+      if (!blob) return file;
+      return new File([blob], file.name.replace(/\.(png|jpe?g)$/i, "") + ".jpg", { type: "image/jpeg" });
+    } catch {
+      return file;
+    }
+  };
 
-    setAssignments((prev) => 
-      prev.map((asg) => 
-        asg.id === selectedAsgId 
-          ? { 
-              ...asg, 
-              status: "Submitted", 
-              uploadedFile: homeworkFileMockName, 
-              dateSubmitted: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) 
-            } 
-          : asg
-      )
-    );
-
-    // Append to general file locker list for visual feedback
-    const newLockerRecord = {
-      name: `${homeworkFileMockName} (Homework Submission)`,
-      type: homeworkFileMockName.split(".").pop()?.toUpperCase() || "PDF",
-      size: "1.8 MB",
-      date: new Date().toISOString().split("T")[0]
-    };
-    setUploadedFiles((prev) => [newLockerRecord, ...prev]);
-
-    setHomeworkSuccess(true);
-    setTimeout(() => {
-      setHomeworkSuccess(false);
-      setHomeworkFileMockName("");
-    }, 4500);
+  const handleSubmitHomework = async (homework: HomeworkItem) => {
+    const picked = homeworkFiles[homework.id];
+    if (!picked) return;
+    setHomeworkUploadingId(homework.id);
+    setHomeworkStatus(null);
+    const file = await shrinkPhoto(picked);
+    if (file.size > 4 * 1024 * 1024) {
+      setHomeworkUploadingId(null);
+      setHomeworkStatus({ id: homework.id, type: "error", message: d("This file is bigger than 4 MB. Try a smaller file, or a PDF or photo instead.", "Este archivo supera los 4 MB. Prueba con un archivo más pequeño, o un PDF o una foto.") });
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    if (homeworkNotes[homework.id]?.trim()) formData.append("note", homeworkNotes[homework.id].trim());
+    const response = await fetch(`/api/homework/${homework.id}/submit`, { method: "POST", body: formData }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setHomeworkUploadingId(null);
+    if (!response?.ok) {
+      setHomeworkStatus({ id: homework.id, type: "error", message: (typeof payload?.detail === "string" && payload.detail) || d("The upload failed. Check your connection and try again.", "La subida falló. Revisa tu conexión e inténtalo de nuevo.") });
+      return;
+    }
+    setHomeworkFiles((files) => ({ ...files, [homework.id]: null }));
+    setHomeworkNotes((notes) => ({ ...notes, [homework.id]: "" }));
+    setHomeworkStatus({ id: homework.id, type: "success", message: d("Handed in! Your tutor can now see your file.", "¡Entregada! Tu tutor ya puede ver tu archivo.") });
+    setHomeworkRefresh((n) => n + 1);
   };
 
   // Direct Mail Send Handler
@@ -1121,6 +1209,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                 </div>
               </div>
 
+              {notesError && (
+                <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{notesError}</p>
+              )}
+
               {/* Composition block */}
               <form onSubmit={handleAddNote} className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
                 <input
@@ -1432,103 +1524,111 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
             </div>
           </div>
 
-          {/* Homework assignment direct uploader */}
-          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs flex flex-col justify-between min-h-[400px]">
-            <div className="space-y-4">
-              <div className="pb-3 border-b border-slate-100">
-                <h3 className="font-sans font-black text-slate-950 text-xs uppercase tracking-wider flex items-center">
-                  <Upload size={16} className="text-teal-600 mr-2" />
-                  <span>{d("Interactive Homework Desk", "Escritorio Interactivo de Tareas")}</span>
-                </h3>
-              </div>
-
-              {homeworkSuccess && (
-                <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-2xl text-[11px] flex items-start space-x-2">
-                  <CheckCircle2 size={14} className="shrink-0 mt-0.5 text-emerald-600" />
-                  <div>
-                    <span className="font-bold">{d("Assignment Published!", "¡Tarea Publicada!")}</span>
-                    <p className="text-emerald-700 font-medium">{d("Your homework file has been relayed and logged in the academic ledger.", "Tu archivo de tarea ha sido transmitido y registrado en el expediente académico.")}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Upload Form */}
-              {assignments.length === 0 ? (
-                <div className="p-6 text-center text-xs text-slate-400 font-semibold bg-slate-50 border border-slate-200 rounded-2xl">
-                  {d("No assignments yet. They'll show up here once your instructor publishes one.", "Aún no hay tareas. Aparecerán aquí cuando tu instructor publique una.")}
-                </div>
-              ) : (
-              <form onSubmit={handleAddAssignmentSubmission} className="space-y-4 w-full">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">{d("Target Assignment", "Tarea Objetivo")}</label>
-                  <select
-                    value={selectedAsgId}
-                    onChange={(e) => setSelectedAsgId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden text-slate-700 font-bold"
-                  >
-                    {assignments.map(asg => (
-                      <option key={asg.id} value={asg.id}>
-                        {asg.title}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block font-bold">{d("Specify Document File Name", "Especificar Nombre de Archivo")}</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder={d("e.g. ser_metaphor_essay.pdf", "ej. ensayo_metafora_ser.pdf")}
-                    value={homeworkFileMockName}
-                    onChange={(e) => setHomeworkFileMockName(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden focus:border-teal-600"
-                  />
-                  <span className="text-[9px] text-slate-400 block leading-tight">
-                    {d("Type a mock file name above then click send to simulate a drag-and-drop secure upload file.", "Escribe un nombre de archivo ficticio arriba y luego haz clic en enviar para simular una carga segura.")}
-                  </span>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={!homeworkFileMockName}
-                  className={`w-full py-2.5 rounded-xl font-bold font-sans text-xs tracking-wide transition cursor-pointer flex justify-center items-center text-white ${
-                    homeworkFileMockName ? "bg-teal-700 hover:bg-teal-600 text-white shadow-md shadow-teal-700/10" : "bg-slate-100 text-slate-405 text-slate-400 cursor-not-allowed"
-                  }`}
-                >
-                  <CheckCircle size={14} className="mr-1.5" />
-                  <span>{d("Transmit Homework File", "Transmitir Archivo de Tarea")}</span>
-                </button>
-              </form>
-              )}
+          {/* Homework: what the tutor set, and handing in a real file */}
+          <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-xs space-y-4 min-w-0">
+            <div className="pb-3 border-b border-slate-100">
+              <h3 className="font-sans font-black text-slate-950 text-xs uppercase tracking-wider flex items-center">
+                <Upload size={16} className="text-teal-600 mr-2" />
+                <span>{d("Homework", "Tareas")}</span>
+              </h3>
             </div>
 
-            {/* Assignments checklists */}
-            {assignments.length > 0 && (
-            <div className="space-y-3 pt-6 border-t border-slate-100 mt-6 text-left w-full">
-              <span className="text-[10px] font-bold text-slate-405 text-slate-400 uppercase tracking-wider block">{d("Timeline Checklist", "Lista de Control Cronológica")}</span>
-
-              <div className="space-y-2.5 w-full">
-                {assignments.map((asg) => (
-                  <div key={asg.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] flex justify-between items-center text-left">
-                    <div className="truncate pr-4 space-y-0.5 text-left min-w-0">
-                      <p className="font-extrabold text-slate-800 truncate leading-tight block">{asg.title}</p>
-                      <span className="text-[9px] text-slate-400 font-mono block">{d(`Deadline: ${asg.deadline}`, `Fecha Límite: ${asg.deadline}`)}</span>
-                    </div>
-
-                    <div className="shrink-0 text-right">
-                      <span className={`px-2 py-0.5 rounded-full inline-block text-[9px] font-mono font-bold uppercase tracking-wider ${
-                        asg.status === "Submitted" 
-                          ? "bg-indigo-100 text-indigo-800" 
-                          : "bg-amber-100 text-amber-800"
-                      }`}>
-                        {asg.status === "Submitted" ? d("Submitted", "Enviado") : d("Pending", "Pendiente")}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+            {homeworkList.length === 0 ? (
+              <div className="p-6 text-center text-xs text-slate-400 font-semibold bg-slate-50 border border-slate-200 rounded-2xl">
+                {d("No homework yet. It will show up here when your tutor sets some.", "Aún no hay tareas. Aparecerán aquí cuando tu tutor publique una.")}
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                {homeworkList.map((homework) => {
+                  const picked = homeworkFiles[homework.id];
+                  const uploading = homeworkUploadingId === homework.id;
+                  const status = homeworkStatus?.id === homework.id ? homeworkStatus : null;
+                  const sub = homework.submission;
+                  return (
+                    <div key={homework.id} className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 text-[11px]">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <p className="font-extrabold text-xs text-slate-800 leading-tight">{homework.title}</p>
+                          <span className="text-[10px] text-slate-400 font-mono block">
+                            {homework.due_date ? d(`Due ${homework.due_date}`, `Entrega ${homework.due_date}`) : d("No due date", "Sin fecha de entrega")}
+                          </span>
+                        </div>
+                        <span className={`shrink-0 px-2 py-0.5 rounded-full text-[9px] font-mono font-bold uppercase tracking-wider ${
+                          homework.score !== null ? "bg-teal-600 text-white"
+                            : sub ? "bg-indigo-100 text-indigo-800"
+                            : "bg-amber-100 text-amber-800"
+                        }`}>
+                          {homework.score !== null
+                            ? `${homework.score} / ${homework.max_score}`
+                            : sub ? d("Handed in", "Entregada") : d("To do", "Pendiente")}
+                        </span>
+                      </div>
+
+                      {homework.instructions && <p className="text-slate-600 whitespace-pre-line">{homework.instructions}</p>}
+                      {homework.remarks && (
+                        <p className="text-teal-800 bg-teal-50 border border-teal-100 rounded-xl px-2.5 py-1.5">
+                          <span className="font-bold">{d("Tutor's comment:", "Comentario del tutor:")}</span> {homework.remarks}
+                        </p>
+                      )}
+
+                      {sub && (
+                        <a href={sub.file_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-teal-700 font-semibold min-w-0">
+                          <CheckCircle2 size={12} className="shrink-0" />
+                          <span className="truncate">{sub.file_name}</span>
+                          <span className="text-slate-400 font-mono shrink-0">
+                            · {new Date(sub.submitted_at).toLocaleDateString([], { day: "numeric", month: "short" })}
+                            {sub.late ? ` · ${d("late", "tarde")}` : ""}
+                          </span>
+                        </a>
+                      )}
+
+                      <div className="space-y-1.5 pt-1">
+                        <label className="block">
+                          <span className="sr-only">{d(`File for ${homework.title}`, `Archivo para ${homework.title}`)}</span>
+                          <input
+                            type="file"
+                            accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.heic,.mp3,.m4a,image/*,audio/*"
+                            onChange={(e) => setHomeworkFiles((files) => ({ ...files, [homework.id]: e.target.files?.[0] || null }))}
+                            className="block w-full text-[11px] text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-white file:px-2.5 file:py-1.5 file:text-[11px] file:font-bold file:text-teal-700 file:shadow-xs"
+                          />
+                        </label>
+                        {picked && (
+                          <input
+                            type="text"
+                            maxLength={2000}
+                            placeholder={d("Message for your tutor (optional)", "Mensaje para tu tutor (opcional)")}
+                            value={homeworkNotes[homework.id] || ""}
+                            onChange={(e) => setHomeworkNotes((notes) => ({ ...notes, [homework.id]: e.target.value }))}
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-hidden"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          disabled={!picked || uploading}
+                          onClick={() => handleSubmitHomework(homework)}
+                          className={`w-full py-2 rounded-xl font-bold text-xs flex justify-center items-center transition ${
+                            picked && !uploading ? "bg-teal-700 hover:bg-teal-600 text-white cursor-pointer" : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          }`}
+                        >
+                          <Upload size={13} className="mr-1.5" />
+                          {uploading ? d("Uploading...", "Subiendo...") : sub ? d("Replace my file", "Reemplazar mi archivo") : d("Hand in", "Entregar")}
+                        </button>
+                        <span className="block text-[9px] text-slate-400">
+                          {d("PDF, Word, photo or audio, up to 4 MB.", "PDF, Word, foto o audio, hasta 4 MB.")}
+                        </span>
+                      </div>
+
+                      {status && (
+                        <p role={status.type === "error" ? "alert" : "status"} className={`rounded-xl px-2.5 py-1.5 font-semibold ${
+                          status.type === "success" ? "bg-emerald-50 text-emerald-800 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"
+                        }`}>
+                          {status.message}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         </div>
