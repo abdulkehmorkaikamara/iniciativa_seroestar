@@ -33,7 +33,8 @@ import {
   BookMarked,
   GraduationCap,
   Building2,
-  Handshake
+  Handshake,
+  Trash2
 } from "lucide-react";
 
 import { Course, Testimonial, BlogPost } from "./types";
@@ -386,13 +387,25 @@ export default function App() {
   const [teacherSession, setTeacherSession] = useState<any | null>(null);
   const [adminSession, setAdminSession] = useState<any | null>(null);
   // Articles the admin published (from the server) come first, then the built-in ones.
+  // Built-in articles the admin removed are hidden for every visitor.
   const [publishedBlogPosts, setPublishedBlogPosts] = useState<BlogPost[]>([]);
-  const customBlogPosts = useMemo(() => [...publishedBlogPosts, ...BLOG_POSTS], [publishedBlogPosts]);
+  const [hiddenBuiltinIds, setHiddenBuiltinIds] = useState<string[]>([]);
+  const customBlogPosts = useMemo(
+    () => [...publishedBlogPosts, ...BLOG_POSTS.filter((post) => !hiddenBuiltinIds.includes(post.id))],
+    [publishedBlogPosts, hiddenBuiltinIds]
+  );
+  const hiddenBuiltinPosts = useMemo(() => BLOG_POSTS.filter((post) => hiddenBuiltinIds.includes(post.id)), [hiddenBuiltinIds]);
   useEffect(() => {
     fetch("/api/blog")
       .then((res) => (res.ok ? res.json() : []))
       .then((data) => {
         if (Array.isArray(data)) setPublishedBlogPosts(data.map(blogPostFromServer));
+      })
+      .catch(() => {});
+    fetch("/api/blog/hidden-builtins")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setHiddenBuiltinIds(data.map(String));
       })
       .catch(() => {});
   }, []);
@@ -894,8 +907,31 @@ Spanish:
     setPublishedBlogPosts((posts) => [blogPostFromServer(post), ...posts]);
   };
 
-  const handleDeleteBlogPost = (id: string) => {
-    setPublishedBlogPosts((posts) => posts.filter(p => p.id !== id));
+  // Admin only: articles the admin wrote are deleted; built-in ones are hidden
+  // from the website and can be brought back from the Admin Dashboard.
+  const handleDeleteBlogPost = async (post: BlogPost) => {
+    const es = courseLang === "ES";
+    if (!window.confirm(es ? `¿Eliminar "${post.title}" de la web?` : `Delete "${post.title}" from the website?`)) return;
+    const response = await fetch(
+      post.serverId ? `/api/blog/${post.serverId}` : `/api/blog/hidden-builtins/${encodeURIComponent(post.id)}`,
+      { method: post.serverId ? "DELETE" : "PUT" }
+    ).catch(() => null);
+    if (!response?.ok && !(post.serverId && response?.status === 404)) {
+      alert(es ? "No se pudo eliminar el artículo. Inténtalo de nuevo." : "The article could not be deleted. Try again.");
+      return;
+    }
+    if (post.serverId) setPublishedBlogPosts((posts) => posts.filter(p => p.id !== post.id));
+    else setHiddenBuiltinIds((ids) => [...ids, post.id]);
+    if (activeBlog?.id === post.id) setActiveBlog(null);
+  };
+
+  const handleRestoreBlogPost = async (id: string) => {
+    const response = await fetch(`/api/blog/hidden-builtins/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      alert(courseLang === "ES" ? "No se pudo restaurar el artículo. Inténtalo de nuevo." : "The article could not be brought back. Try again.");
+      return;
+    }
+    setHiddenBuiltinIds((ids) => ids.filter((hidden) => hidden !== id));
   };
 
   // Admin Image overrides
@@ -1022,6 +1058,8 @@ Spanish:
                   blogPosts={customBlogPosts}
                   onAddBlogPost={handleAddBlogPost}
                   onDeleteBlogPost={handleDeleteBlogPost}
+                  hiddenBuiltinPosts={hiddenBuiltinPosts}
+                  onRestoreBlogPost={handleRestoreBlogPost}
                   onUpdateImage={handleUpdateImage}
                   imageOverrides={imageOverrides}
                   lang={courseLang}
@@ -1923,6 +1961,16 @@ Spanish:
                           {post.category}
                         </span>
                       </div>
+                      {adminSession && (
+                        <button
+                          onClick={() => handleDeleteBlogPost(sourcePost)}
+                          className="absolute top-3 right-3 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white text-[11px] font-bold shadow-sm transition cursor-pointer"
+                          title={courseLang === "EN" ? "Delete this article (only admins see this button)" : "Eliminar este artículo (solo los administradores ven este botón)"}
+                        >
+                          <Trash2 size={13} />
+                          <span>{courseLang === "EN" ? "Delete" : "Eliminar"}</span>
+                        </button>
+                      )}
                     </div>
 
                     {/* Blog Info */}

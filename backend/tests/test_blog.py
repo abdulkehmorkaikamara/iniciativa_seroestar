@@ -37,3 +37,22 @@ class BlogTests(_LiveSessionTestCase):
         self.assertEqual(self._publish(content_markdown="").status_code, 422)
         self.assertEqual(self._publish(featured_image_url="javascript:alert(1)").status_code, 400)
         self.assertEqual(self._publish(featured_image_url="http://example.com/a.jpg").status_code, 400)
+
+
+class HiddenBuiltinArticleTests(_LiveSessionTestCase):
+    def test_admin_hides_and_restores_builtin_articles(self):
+        url = "/api/blog/hidden-builtins/spanish-diplomacy-sierra-leone"
+        self.assertEqual(self.client.get("/api/blog/hidden-builtins").json(), [])
+        self.assertEqual(self.client.put(url, headers=self._headers(DEVELOPER)).status_code, 200)
+        self.assertEqual(self.client.put(url, headers=self._headers(DEVELOPER)).status_code, 200)
+        self.assertEqual(self.client.get("/api/blog/hidden-builtins").json(), ["spanish-diplomacy-sierra-leone"])
+
+        self.assertEqual(self.client.delete(url, headers=self._headers(DEVELOPER)).status_code, 200)
+        self.assertEqual(self.client.get("/api/blog/hidden-builtins").json(), [])
+
+    def test_only_the_admin_hides_articles(self):
+        url = "/api/blog/hidden-builtins/spanish-diplomacy-sierra-leone"
+        for credentials in (TUTOR, STUDENT):
+            self.assertEqual(self.client.put(url, headers=self._headers(credentials)).status_code, 403)
+            self.assertEqual(self.client.delete(url, headers=self._headers(credentials)).status_code, 403)
+        self.assertEqual(self.client.put("/api/blog/hidden-builtins/Bad%20Key!", headers=self._headers(DEVELOPER)).status_code, 404)

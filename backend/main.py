@@ -2837,6 +2837,41 @@ def delete_blog_post(post_id: int, request: Request, db: Session = Depends(get_d
     return {"detail": "Article deleted"}
 
 
+# The built-in articles live in the frontend code; the admin can still take
+# one off the website, and bring it back later.
+BUILTIN_ARTICLE_KEY = re.compile(r"^[a-z0-9-]{1,100}$")
+
+
+def _builtin_article_key(key: str) -> str:
+    if not BUILTIN_ARTICLE_KEY.match(key):
+        raise HTTPException(status_code=404, detail="Article not found.")
+    return key
+
+
+@app.get("/api/blog/hidden-builtins")
+def list_hidden_builtin_articles(db: Session = Depends(get_db)):
+    return [row.article_key for row in db.query(models.HiddenBuiltinArticle).order_by(models.HiddenBuiltinArticle.id).all()]
+
+
+@app.put("/api/blog/hidden-builtins/{key}")
+def hide_builtin_article(key: str, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _require_admin(request)
+    key = _builtin_article_key(key)
+    if not db.query(models.HiddenBuiltinArticle).filter(models.HiddenBuiltinArticle.article_key == key).first():
+        db.add(models.HiddenBuiltinArticle(article_key=key, hidden_by=str(auth_payload.get("sub") or "").lower() or None))
+        db.commit()
+    return {"detail": "Article removed from the website"}
+
+
+@app.delete("/api/blog/hidden-builtins/{key}")
+def restore_builtin_article(key: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    key = _builtin_article_key(key)
+    db.query(models.HiddenBuiltinArticle).filter(models.HiddenBuiltinArticle.article_key == key).delete(synchronize_session=False)
+    db.commit()
+    return {"detail": "Article is back on the website"}
+
+
 # --- 5. Interactive Image Uploads ---
 @app.post("/api/images")
 async def upload_image(

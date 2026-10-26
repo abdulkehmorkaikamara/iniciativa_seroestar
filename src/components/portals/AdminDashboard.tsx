@@ -41,7 +41,9 @@ interface AdminDashboardProps {
   adminProfile?: any;
   blogPosts: any[];
   onAddBlogPost: (post: any) => void;
-  onDeleteBlogPost: (id: string) => void;
+  onDeleteBlogPost: (post: any) => void;
+  hiddenBuiltinPosts: any[];
+  onRestoreBlogPost: (id: string) => void;
   onUpdateImage: (slot: string, path: string | null) => void;
   imageOverrides: Record<string, string>;
   lang?: "EN" | "ES";
@@ -271,6 +273,8 @@ export default function AdminDashboard({
   blogPosts,
   onAddBlogPost,
   onDeleteBlogPost,
+  hiddenBuiltinPosts,
+  onRestoreBlogPost,
   onUpdateImage,
   imageOverrides,
   lang = "EN"
@@ -760,17 +764,6 @@ export default function AdminDashboard({
     setBlogContent("");
     setBlogImage("");
     setBlogImageFile(null);
-  };
-
-  const handleDeletePublishedPost = async (post: any) => {
-    if (!post.serverId) return;
-    if (!window.confirm(d(`Delete "${post.title}" from the website?`, `¿Eliminar "${post.title}" de la web?`))) return;
-    const response = await fetch(`/api/blog/${post.serverId}`, { method: "DELETE" }).catch(() => null);
-    if (!response?.ok && response?.status !== 404) {
-      setBlogStatus({ type: "error", message: d("That article could not be deleted. Try again.", "No se pudo eliminar ese artículo. Inténtalo de nuevo.") });
-      return;
-    }
-    onDeleteBlogPost(post.id);
   };
 
   const pickReplacementImage = (file: File | undefined) => {
@@ -1372,18 +1365,33 @@ export default function AdminDashboard({
                   <h4 className="font-bold text-slate-800 truncate leading-tight pr-5">{bp.title}</h4>
                 </div>
 
-                {bp.serverId ? (
-                  <button
-                    onClick={() => handleDeletePublishedPost(bp)}
-                    className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0 cursor-pointer"
-                    title={d("Delete post", "Eliminar publicación")}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                ) : null}
+                <button
+                  onClick={() => onDeleteBlogPost(bp)}
+                  className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0 cursor-pointer"
+                  title={d("Delete post", "Eliminar publicación")}
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
             ))}
           </div>
+
+          {hiddenBuiltinPosts.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase">{d("Removed built-in articles", "Artículos incluidos eliminados")}</h4>
+              {hiddenBuiltinPosts.map(bp => (
+                <div key={bp.id} className="p-3 bg-white border border-dashed border-slate-200 rounded-xl flex justify-between items-center gap-2 text-xs">
+                  <span className="truncate text-slate-500">{bp.title}</span>
+                  <button
+                    onClick={() => onRestoreBlogPost(bp.id)}
+                    className="shrink-0 text-[11px] font-bold text-orange-600 hover:text-orange-500 cursor-pointer"
+                  >
+                    {d("Bring back", "Restaurar")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
