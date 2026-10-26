@@ -309,6 +309,44 @@ class HomeworkSubmission(Base):
     homework = relationship("Homework", back_populates="submissions")
     student = relationship("StudentProfile")
 
+class Review(Base):
+    """A public review left on the website; shown only once an admin approves it."""
+
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    location = Column(String(100), nullable=True) # profession / city, as typed
+    rating = Column(Integer, nullable=False) # 1-5
+    text = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True) # pending, approved, rejected
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by = Column(String(255), nullable=True)
+
+class StudentNote(Base):
+    """A student's private note in their portal."""
+
+    __tablename__ = "student_notes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AnnouncementState(Base):
+    """Whether a student has read, or removed from their portal, an announcement."""
+
+    __tablename__ = "announcement_states"
+    __table_args__ = (UniqueConstraint("student_id", "announcement_id", name="uq_announcement_states_student_announcement"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    announcement_id = Column(Integer, ForeignKey("announcements.id", ondelete="CASCADE"), nullable=False, index=True)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    hidden = Column(Boolean, nullable=False, default=False, server_default="0")
+
 class BlogPost(Base):
     __tablename__ = "blog_posts"
 

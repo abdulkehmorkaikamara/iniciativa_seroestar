@@ -156,6 +156,25 @@ class HomeworkCreate(BaseModel):
     due_date: Optional[str] = Field(default=None, max_length=20)
     max_score: float = Field(default=100, gt=0, le=1000)
 
+class ReviewCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    location: Optional[str] = Field(default=None, max_length=100)
+    rating: int = Field(ge=1, le=5)
+    text: str = Field(min_length=1, max_length=1500)
+    website: Optional[str] = None  # honeypot: people leave it empty, spam bots fill it in
+
+class ReviewStatusUpdate(BaseModel):
+    status: str = Field(pattern="^(pending|approved|rejected)$")
+
+class StudentNoteCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
+    content: str = Field(min_length=1, max_length=20000)
+    created_on: Optional[str] = Field(default=None, max_length=20)  # YYYY-MM-DD, for notes moved from the browser
+
+class AnnouncementStateUpdate(BaseModel):
+    read: Optional[bool] = None
+    hidden: Optional[bool] = None
+
 class ManualAttendanceUpdate(BaseModel):
     session_id: int
     student_id_code: str

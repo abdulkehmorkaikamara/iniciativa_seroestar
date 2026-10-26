@@ -20,7 +20,7 @@ export interface Testimonial {
   location: string;
   rating: number;
   text: string;
-  avatarUrl: string;
+  avatarUrl?: string;
   imageUrl?: string;
   imageFit?: "cover" | "contain";
 }
