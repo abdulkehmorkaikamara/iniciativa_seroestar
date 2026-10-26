@@ -21,6 +21,7 @@ import {
   ExternalLink
 } from "lucide-react";
 import ChangePasswordButton from "./ChangePasswordButton";
+import CertificateButton from "./CertificateButton";
 import LiveVideoRoom from "../LiveVideoRoom";
 import MessagesPanel from "./MessagesPanel";
 import { useLiveChat } from "../useLiveChat";
@@ -1380,6 +1381,12 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
                     <td className="p-3 sticky left-0 bg-white">
                       <span className="block font-semibold text-slate-800 whitespace-nowrap">{row.full_name}</span>
                       <span className="block font-mono text-[10px] font-bold text-teal-700">{row.student_id_code}</span>
+                      <CertificateButton
+                        student={row}
+                        school={classGroupLabel(groupByCode(attendanceGroupCode))}
+                        lang={lang}
+                        className="mt-1 text-[10px] font-bold text-[#0B4C9C] hover:underline cursor-pointer"
+                      />
                     </td>
                     {attendanceSheet.sessions.map((session: any, index: number) => (
                       <td key={session.id} className="p-2 text-center">

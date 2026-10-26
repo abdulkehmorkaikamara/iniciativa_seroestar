@@ -2331,6 +2331,8 @@ def get_group_attendance(course_level: str, class_group: str, request: Request, 
             {
                 "student_id_code": student.student_id_code,
                 "full_name": student.user.full_name if student.user else student.student_id_code,
+                "course_level": student.course_level,
+                "registration_date": student.registration_date,
             }
             for student in sorted(students, key=lambda s: ((s.user.full_name if s.user else "") or s.student_id_code).lower())
         ],
