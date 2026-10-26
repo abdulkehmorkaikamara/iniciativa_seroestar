@@ -526,32 +526,16 @@ export default function App() {
     }
   }, [chatAnswers, chatLoading, showWhatsAppEscalation, chatOpen]);
 
-  const chatbotFAQ = [
-    {
-      q: courseLang === "EN" ? "Are lessons online or physical?" : "¿Las lecciones son online o presenciales?",
-      a: courseLang === "EN" 
-        ? "Both! We host live, interactive online sessions via high-definition Zoom feeds, as well as cozy face-to-face physical classes in comfortable small groups (maximum 6 student peers) at our academy hubs."
-        : "¡Ambas! Ofrecemos sesiones interactivas en línea en vivo a través de Zoom, así como clases presenciales en grupos pequeños y cómodos (máximo 6 estudiantes) en nuestras sedes."
-    },
-    {
-      q: courseLang === "EN" ? "Is the trial class fully free?" : "¿La clase de prueba es totalmente gratis?",
-      a: courseLang === "EN" 
-        ? "Yes! Your first trial lesson is a 100% free, 30-minute diagnostic session. Our senior tutor evaluates your learning traps and outlines an individual roadmap with zero commitment."
-        : "¡Sí! Tu primera lección de prueba es una sesión de diagnóstico de 30 minutos 100% gratuita. Nuestro tutor evalúa tus dificultades de aprendizaje y diseña una ruta personalizada sin compromiso."
-    },
-    {
-      q: courseLang === "EN" ? "What makes Iniciativa Ser o Estar unique?" : "¿Qué hace único a Iniciativa Ser o Estar?",
-      a: courseLang === "EN" 
-        ? "Traditional schools force endless grammar matrices. We focus on 'Cognitive Metaphors' specifically de-coded for English speakers, helping you map Spanish verb forms to your natural thought patterns."
-        : "Las escuelas tradicionales imponen matrices gramaticales interminables. Nos enfocamos en 'Metáforas Cognitivas' descodificadas específicamente para angloparlantes, ayudándote a adaptar los verbos en español a tus patrones de pensamiento naturales."
-    },
-    {
-      q: courseLang === "EN" ? "When do groups meet?" : "¿Cuándo se reúnen los grupos?",
-      a: courseLang === "EN" 
-        ? "To fit busy schedules, we have early morning, evening, and weekend slots available. Courses launch every single month, so you can start immediately!"
-        : "Para adaptarnos a los horarios ocupados, tenemos turnos por la mañana, por la tarde y los fines de semana. ¡Los cursos comienzan cada mes, así que puedes empezar de inmediato!"
-    }
-  ];
+  // Quick questions come from the admin's chatbot answer list.
+  const [chatbotFAQ, setChatbotFAQ] = useState<Array<{ q: string; a: string }>>([]);
+  useEffect(() => {
+    fetch(`/api/chatbot/faqs?lang=${courseLang === "ES" ? "es" : "en"}`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setChatbotFAQ(data.slice(0, 4).map((faq: any) => ({ q: faq.question, a: faq.answer })));
+      })
+      .catch(() => {});
+  }, [courseLang]);
 
   const handleFAQClick = (question: string, answer: string) => {
     setChatAnswers((prev) => [
@@ -575,49 +559,18 @@ export default function App() {
       const res = await fetch("/api/chatbot", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: query }),
+        body: JSON.stringify({ message: query, lang: courseLang === "ES" ? "es" : "en" }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        setChatAnswers((prev) => [...prev, { sender: "bot", text: data.text }]);
-      } else {
-        throw new Error("Chatbot API endpoint failed");
-      }
+      if (!res.ok) throw new Error("Chatbot API endpoint failed");
+      const data = await res.json();
+      setChatAnswers((prev) => [...prev, { sender: "bot", text: data.text }]);
     } catch (err) {
-      // Intelligent fallback search within FAQs and website info
-      const lowerQuery = query.toLowerCase();
-      let bestAnswer = courseLang === "EN"
-        ? "I'm happy to help! For specialized classes, schedules, and learning how to seamlessly master Ser vs Estar, we have beautiful programs. Let me check our details for you."
-        : "¡Con gusto te ayudo! Para clases especializadas, horarios y aprender a dominar Ser vs Estar a la perfección, tenemos excelentes programas. Déjame revisar los detalles por ti.";
-      
-      let matched = false;
-      for (const faq of chatbotFAQ) {
-        const keyWords = faq.q.toLowerCase().replace(/[?,!¿¡]/g, "").split(" ");
-        // If there's keyword overlap, use the FAQ answer
-        if (keyWords.some(word => word.length > 3 && lowerQuery.includes(word))) {
-          bestAnswer = faq.a;
-          matched = true;
-          break;
-        }
-      }
-
-      if (!matched) {
-        if (lowerQuery.includes("price") || lowerQuery.includes("cost") || lowerQuery.includes("free") || lowerQuery.includes("pay") || lowerQuery.includes("precio") || lowerQuery.includes("costo") || lowerQuery.includes("gratis") || lowerQuery.includes("pagar")) {
-          bestAnswer = courseLang === "EN"
-            ? "Our introductory diagnostic and trial session is 100% free with no commitment! For our premium small group courses, please connect with our support desk for custom pricing options."
-            : "¡Nuestra sesión introductoria de diagnóstico y prueba es 100% gratuita y sin compromiso! Para nuestros cursos premium en grupos pequeños, comunícate con soporte para ver opciones de precios personalizados.";
-        } else if (lowerQuery.includes("level") || lowerQuery.includes("course") || lowerQuery.includes("class") || lowerQuery.includes("learn") || lowerQuery.includes("nivel") || lowerQuery.includes("curso") || lowerQuery.includes("clase") || lowerQuery.includes("aprender")) {
-          bestAnswer = courseLang === "EN"
-            ? "We offer beautifully organized intensive group classes for A1 Beginner, A2 Elementary, and B1 Intermediate levels, all capped at 6 students to ensure rich participation!"
-            : "¡Ofrecemos clases intensivas en grupos organizados para niveles A1 Principiante, A2 Elemental y B1 Intermedio, todas limitadas a 6 estudiantes para asegurar una participación activa!";
-        } else if (lowerQuery.includes("location") || lowerQuery.includes("address") || lowerQuery.includes("where") || lowerQuery.includes("spain") || lowerQuery.includes("madrid") || lowerQuery.includes("colombia") || lowerQuery.includes("dirección") || lowerQuery.includes("dónde") || lowerQuery.includes("ubicación")) {
-          bestAnswer = courseLang === "EN"
-            ? "We have active physical presence and academy hubs in Madrid (España), Medellín (Colombia), Freetown (Sierra Leone), and Virginia (USA), alongside our global high-definition Zoom classrooms."
-            : "Contamos con presencia física activa y sedes en Madrid (España), Medellín (Colombia), Freetown (Sierra Leona) y Virginia (EE. UU.), junto con nuestras aulas globales por Zoom de alta definición.";
-        }
-      }
-
-      setChatAnswers((prev) => [...prev, { sender: "bot", text: bestAnswer }]);
+      setChatAnswers((prev) => [...prev, {
+        sender: "bot",
+        text: courseLang === "EN"
+          ? "Sorry, I can't answer right now. Please message our team on WhatsApp (+232 72 057646)."
+          : "Lo siento, ahora no puedo responder. Escribe a nuestro equipo por WhatsApp (+232 72 057646)."
+      }]);
     } finally {
       setChatLoading(false);
       setShowWhatsAppEscalation(true);
@@ -2518,6 +2471,7 @@ export default function App() {
               </form>
 
               {/* FAQ suggestions */}
+              {chatbotFAQ.length > 0 && (
               <div className="p-3 bg-slate-950/80 border-t border-slate-800/80 space-y-1.5 shrink-0">
                 <span className="text-[9px] font-mono font-bold text-slate-500 uppercase tracking-widest pl-1">
                   {courseLang === "EN" ? "Quick Select FAQs:" : "Preguntas frecuentes rápidas:"}
@@ -2534,6 +2488,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>

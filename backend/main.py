@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from .database import get_db, database_description
 from . import models, schemas, auth, roles, seed
 from .live_utils import build_room_details
-from . import meet, google_accounts, google_workspace
+from . import meet, google_accounts, google_workspace, chatbot
 from .storage import store_upload
 from .tutors import TUTOR_PROFILES, find_tutor_by_email, find_tutor_by_name
 from .groups import group_number, content_in_group
@@ -222,23 +222,34 @@ def health_check():
     return payload
 
 
+def _faqs_for(lang: str, db: Session) -> list:
+    return db.query(models.ChatbotFAQ).filter(models.ChatbotFAQ.language == lang).order_by(models.ChatbotFAQ.id).all()
+
+
+def _faq_response(faq: models.ChatbotFAQ) -> dict:
+    return {"id": faq.id, "question": faq.question, "answer": faq.answer, "language": faq.language, "keywords": faq.keywords or ""}
+
+
 @app.post("/api/chatbot")
-def academy_chatbot(payload: dict):
+def academy_chatbot(payload: dict, db: Session = Depends(get_db)):
+    """Answer from the academy's own question list; never make facts up."""
     message = str(payload.get("message") or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message content is required.")
     if len(message) > 2000:
         raise HTTPException(status_code=413, detail="Message is too long.")
+    lang = "es" if str(payload.get("lang") or "").lower() == "es" else "en"
 
+    if chatbot.is_greeting(message):
+        return {"text": chatbot.greeting(lang), "matched": True}
+    faqs = _faqs_for(lang, db)
+    answer = chatbot.best_answer(message, faqs)
+    if answer:
+        return {"text": answer, "matched": True}
     if not OPENAI_API_KEY:
-        return {
-            "text": (
-                "¡Hola! Our academy offers A1, A2, and B1 Spanish courses for adult learners, "
-                "with small online groups, live tutor support, and face-to-face guidance when needed. "
-                "For enrollment help, use the WhatsApp information button and our team will assist you."
-            )
-        }
+        return {"text": chatbot.no_answer(lang), "matched": False}
 
+    facts = "\n".join(f"Q: {faq.question}\nA: {faq.answer}" for faq in faqs)
     request_body = {
         "model": os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
         "messages": [
@@ -246,14 +257,15 @@ def academy_chatbot(payload: dict):
                 "role": "system",
                 "content": (
                     "You are the concise bilingual guide for Iniciativa Ser o Estar, a Spanish academy "
-                    "for adult English speakers. Answer only questions about the academy and Spanish learning. "
-                    "Do not invent prices, schedules, accreditation, or policies."
+                    "in Sierra Leone. Answer only questions about the academy and Spanish learning, using only "
+                    "these facts:\n" + facts + "\nIf the facts do not answer the question, say so and suggest "
+                    f"WhatsApp ({chatbot.WHATSAPP_NUMBER}). Do not invent prices, schedules, accreditation, or policies."
                 ),
             },
             {"role": "user", "content": message},
         ],
         "max_tokens": 400,
-        "temperature": 0.4,
+        "temperature": 0.2,
     }
     try:
         ai_request = urllib.request.Request(
@@ -264,9 +276,65 @@ def academy_chatbot(payload: dict):
         )
         with urllib.request.urlopen(ai_request, timeout=20) as ai_response:
             ai_payload = json.loads(ai_response.read().decode("utf-8"))
-        return {"text": ai_payload["choices"][0]["message"]["content"]}
+        return {"text": ai_payload["choices"][0]["message"]["content"], "matched": False}
     except Exception:
-        raise HTTPException(status_code=502, detail="The academy assistant is temporarily unavailable.")
+        return {"text": chatbot.no_answer(lang), "matched": False}
+
+
+@app.get("/api/chatbot/faqs")
+def list_chatbot_faqs(lang: str = "en", db: Session = Depends(get_db)):
+    """The questions shown as quick buttons in the chat window."""
+    return [_faq_response(faq) for faq in _faqs_for("es" if lang.lower() == "es" else "en", db)]
+
+
+@app.get("/api/admin/faqs")
+def admin_list_faqs(request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    return [_faq_response(faq) for faq in db.query(models.ChatbotFAQ).order_by(models.ChatbotFAQ.id).all()]
+
+
+def _apply_faq(faq: models.ChatbotFAQ, payload: schemas.ChatbotFAQUpsert) -> None:
+    question, answer = payload.question.strip(), payload.answer.strip()
+    if not question or not answer:
+        raise HTTPException(status_code=400, detail="Add both a question and an answer.")
+    faq.question = question
+    faq.answer = answer
+    faq.language = payload.language
+    faq.keywords = (payload.keywords or "").strip() or None
+
+
+@app.post("/api/admin/faqs")
+def admin_create_faq(payload: schemas.ChatbotFAQUpsert, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    faq = models.ChatbotFAQ()
+    _apply_faq(faq, payload)
+    db.add(faq)
+    db.commit()
+    db.refresh(faq)
+    return _faq_response(faq)
+
+
+@app.put("/api/admin/faqs/{faq_id}")
+def admin_update_faq(faq_id: int, payload: schemas.ChatbotFAQUpsert, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    faq = db.query(models.ChatbotFAQ).filter(models.ChatbotFAQ.id == faq_id).first()
+    if not faq:
+        raise HTTPException(status_code=404, detail="Question not found.")
+    _apply_faq(faq, payload)
+    db.commit()
+    db.refresh(faq)
+    return _faq_response(faq)
+
+
+@app.delete("/api/admin/faqs/{faq_id}")
+def admin_delete_faq(faq_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    faq = db.query(models.ChatbotFAQ).filter(models.ChatbotFAQ.id == faq_id).first()
+    if not faq:
+        raise HTTPException(status_code=404, detail="Question not found.")
+    db.delete(faq)
+    db.commit()
+    return {"detail": "Question deleted"}
 
 MAX_CHAT_MESSAGE_LENGTH = 1000
 MAX_CHAT_PAGE = 200

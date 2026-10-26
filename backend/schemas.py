@@ -374,5 +374,11 @@ class BlogPostResponse(BlogPostCreate):
     class Config:
         from_attributes = True
 
+class ChatbotFAQUpsert(BaseModel):
+    question: str = Field(min_length=1, max_length=255)
+    answer: str = Field(min_length=1, max_length=2000)
+    language: str = Field(pattern="^(en|es)$")
+    keywords: Optional[str] = Field(default=None, max_length=500)
+
 class ChatbotQuery(BaseModel):
     message: str

@@ -19,7 +19,8 @@ import {
   DollarSign,
   LogOut,
   Star,
-  X
+  X,
+  MessageSquare
 } from "lucide-react";
 import { shrinkPhoto } from "../../shrinkPhoto";
 import {
@@ -358,6 +359,65 @@ export default function AdminDashboard({
         setGoogleStatus(data);
       })
       .catch((err) => setGoogleError(err?.message || String(err)));
+  };
+
+  // The website chat answers only from this question-and-answer list.
+  type Faq = { id: number; question: string; answer: string; language: "en" | "es"; keywords: string };
+  const emptyFaq = { question: "", answer: "", keywords: "" };
+  const [faqs, setFaqs] = useState<Faq[]>([]);
+  const [faqLang, setFaqLang] = useState<"en" | "es">(lang === "ES" ? "es" : "en");
+  const [faqForm, setFaqForm] = useState(emptyFaq);
+  const [faqEditingId, setFaqEditingId] = useState<number | null>(null);
+  const [faqSaving, setFaqSaving] = useState(false);
+  const [faqError, setFaqError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/admin/faqs")
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => setFaqs(Array.isArray(data) ? data : []))
+      .catch(() => setFaqError(d("The chatbot answers could not be loaded.", "No se pudieron cargar las respuestas del chatbot.")));
+  }, []);
+
+  const resetFaqForm = () => {
+    setFaqForm(emptyFaq);
+    setFaqEditingId(null);
+  };
+
+  const handleSaveFaq = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!faqForm.question.trim() || !faqForm.answer.trim() || faqSaving) return;
+    setFaqSaving(true);
+    setFaqError(null);
+    const response = await fetch(faqEditingId ? `/api/admin/faqs/${faqEditingId}` : "/api/admin/faqs", {
+      method: faqEditingId ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...faqForm, language: faqLang })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setFaqSaving(false);
+    if (!response?.ok) {
+      setFaqError((typeof payload?.detail === "string" && payload.detail) || d("That answer could not be saved. Check the fields and try again.", "No se pudo guardar esa respuesta. Revisa los campos e inténtalo de nuevo."));
+      return;
+    }
+    setFaqs((list) => (faqEditingId ? list.map((faq) => (faq.id === faqEditingId ? payload : faq)) : [...list, payload]));
+    resetFaqForm();
+  };
+
+  const handleEditFaq = (faq: Faq) => {
+    setFaqEditingId(faq.id);
+    setFaqForm({ question: faq.question, answer: faq.answer, keywords: faq.keywords || "" });
+    setFaqError(null);
+  };
+
+  const handleDeleteFaq = async (faq: Faq) => {
+    if (!window.confirm(d(`Delete "${faq.question}" from the chatbot?`, `¿Eliminar "${faq.question}" del chatbot?`))) return;
+    const response = await fetch(`/api/admin/faqs/${faq.id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok && response?.status !== 404) {
+      setFaqError(d("That answer could not be deleted.", "No se pudo eliminar esa respuesta."));
+      return;
+    }
+    setFaqs((list) => list.filter((item) => item.id !== faq.id));
+    if (faqEditingId === faq.id) resetFaqForm();
   };
 
   // Reviews visitors leave on the website wait here until approved.
@@ -1553,6 +1613,107 @@ export default function AdminDashboard({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Chatbot answers */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6 space-y-4">
+        <div className="pb-3 border-b border-slate-100 flex flex-wrap justify-between items-center gap-2">
+          <div>
+            <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+              <MessageSquare size={14} className="text-orange-500" />
+              {d("Chatbot Answers", "Respuestas del Chatbot")}
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xl">
+              {d("The website chat answers only from this list. When nothing fits, it sends people to WhatsApp. The first four questions also appear as quick buttons.", "El chat de la web responde solo con esta lista. Si nada encaja, envía a la gente a WhatsApp. Las cuatro primeras preguntas también aparecen como botones rápidos.")}
+            </p>
+          </div>
+          <div className="flex gap-1 bg-slate-100 p-1 rounded-xl" role="tablist">
+            {(["en", "es"] as const).map((code) => (
+              <button
+                key={code}
+                role="tab"
+                aria-selected={faqLang === code}
+                onClick={() => { setFaqLang(code); resetFaqForm(); }}
+                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition cursor-pointer ${faqLang === code ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"}`}
+              >
+                {code === "en" ? "English" : "Español"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {faqError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{faqError}</p>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-2 max-h-[420px] overflow-y-auto">
+            {faqs.filter((faq) => faq.language === faqLang).length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-6">{d("No answers in this language yet.", "Aún no hay respuestas en este idioma.")}</p>
+            )}
+            {faqs.filter((faq) => faq.language === faqLang).map((faq) => (
+              <div key={faq.id} className={`p-3 rounded-xl border text-xs space-y-1 ${faqEditingId === faq.id ? "border-orange-400 bg-orange-50/40" : "border-slate-200 bg-slate-50"}`}>
+                <div className="flex justify-between items-start gap-2">
+                  <h4 className="font-bold text-slate-800">{faq.question}</h4>
+                  <div className="flex shrink-0">
+                    <button onClick={() => handleEditFaq(faq)} className="p-1.5 text-slate-400 hover:text-orange-600 rounded-lg cursor-pointer" title={d("Edit", "Editar")}>
+                      <Edit size={13} />
+                    </button>
+                    <button onClick={() => handleDeleteFaq(faq)} className="p-1.5 text-slate-300 hover:text-rose-500 rounded-lg cursor-pointer" title={d("Delete", "Eliminar")}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </div>
+                <p className="text-slate-600 leading-relaxed whitespace-pre-line">{faq.answer}</p>
+                {faq.keywords && <p className="text-[10px] text-slate-400">{d("Keywords:", "Palabras clave:")} {faq.keywords}</p>}
+              </div>
+            ))}
+          </div>
+
+          <form onSubmit={handleSaveFaq} className="space-y-3">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase">
+              {faqEditingId ? d("Edit answer", "Editar respuesta") : d("Add a question", "Añadir una pregunta")} ({faqLang === "en" ? "English" : "Español"})
+            </h4>
+            <input
+              type="text"
+              maxLength={255}
+              placeholder={d("Question, e.g. Do you teach children?", "Pregunta, ej. ¿Enseñan a niños?")}
+              value={faqForm.question}
+              onChange={(e) => setFaqForm({ ...faqForm, question: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+            <textarea
+              rows={4}
+              maxLength={2000}
+              placeholder={d("Answer", "Respuesta")}
+              value={faqForm.answer}
+              onChange={(e) => setFaqForm({ ...faqForm, answer: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+            <input
+              type="text"
+              maxLength={500}
+              placeholder={d("Other words people might use, separated by commas (e.g. kids, children, child)", "Otras palabras que la gente podría usar, separadas por comas (ej. niños, hijos)")}
+              value={faqForm.keywords}
+              onChange={(e) => setFaqForm({ ...faqForm, keywords: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={faqSaving || !faqForm.question.trim() || !faqForm.answer.trim()}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 disabled:bg-slate-200 disabled:text-slate-400 transition cursor-pointer"
+              >
+                {faqSaving ? d("Saving...", "Guardando...") : faqEditingId ? d("Save changes", "Guardar cambios") : d("Add to chatbot", "Añadir al chatbot")}
+              </button>
+              {faqEditingId && (
+                <button type="button" onClick={resetFaqForm} className="px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer">
+                  {d("Cancel", "Cancelar")}
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
       </div>
 
       {/* Students' Google Workspace accounts */}
