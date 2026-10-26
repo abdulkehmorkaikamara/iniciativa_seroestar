@@ -146,7 +146,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     footerDesc: "Spanish Language School",
     footerLinksHeader: "Portal Resources",
     footerStaffAccess: "🔑 Staff Access",
-    footerCopyright: "Licensed developer workspaces active.",
+    footerCopyright: "All rights reserved.",
 
     // Booking Modal
     bookModalHeader: "Secure Your 30-Min Free Trial Diagnostic",
@@ -435,7 +435,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     footerDesc: "Escuela de Idioma Español",
     footerLinksHeader: "Recursos del Portal",
     footerStaffAccess: "🔑 Acceso para Personal",
-    footerCopyright: "Espacios de trabajo de desarrollo activos.",
+    footerCopyright: "Todos los derechos reservados.",
 
     // Booking Modal
     bookModalHeader: "Asegura tu Diagnóstico Gratis de 30 Minutos",
