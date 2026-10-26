@@ -35,7 +35,7 @@ import {
 } from "recharts";
 import { TUTOR_PROFILES } from "../../tutors";
 import PasswordInput from "../PasswordInput";
-import { groupOptionsForLevel } from "../../groups";
+import { groupOptionsForLevel, CLASS_GROUPS, classGroupLabel } from "../../groups";
 
 interface AdminDashboardProps {
   onExit: () => void;
@@ -361,6 +361,61 @@ export default function AdminDashboard({
       .catch((err) => setGoogleError(err?.message || String(err)));
   };
 
+  // Each group's welcome letter: course dates and weekly class times.
+  type LetterSession = { time: string; day: string; session: string };
+  type Letter = { level: string; group_number: number; course_dates: string; duration_weeks: number; sessions: LetterSession[] };
+  const [letters, setLetters] = useState<Letter[]>([]);
+  const [letterGroupCode, setLetterGroupCode] = useState(CLASS_GROUPS[0]?.code || "");
+  const [letterForm, setLetterForm] = useState<{ course_dates: string; duration_weeks: number; sessions: LetterSession[] }>({ course_dates: "", duration_weeks: 6, sessions: [] });
+  const [letterSaving, setLetterSaving] = useState(false);
+  const [letterStatus, setLetterStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const letterGroup = CLASS_GROUPS.find((g) => g.code === letterGroupCode) || CLASS_GROUPS[0];
+
+  useEffect(() => {
+    fetch("/api/admin/welcome-letters")
+      .then((res) => (res.ok ? res.json() : Promise.reject()))
+      .then((data) => setLetters(Array.isArray(data) ? data : []))
+      .catch(() => setLetterStatus({ type: "error", text: d("The welcome letters could not be loaded.", "No se pudieron cargar las cartas de bienvenida.") }));
+  }, []);
+
+  // Fill the form with the chosen group's saved letter (or a blank one).
+  useEffect(() => {
+    if (!letterGroup) return;
+    const saved = letters.find((l) => l.level === letterGroup.level && l.group_number === letterGroup.group);
+    setLetterForm(saved
+      ? { course_dates: saved.course_dates, duration_weeks: saved.duration_weeks, sessions: saved.sessions.map((x) => ({ ...x })) }
+      : { course_dates: "", duration_weeks: 6, sessions: [{ time: "", day: "", session: "" }] });
+  }, [letterGroupCode, letters]);
+
+  const updateLetterSession = (index: number, field: keyof LetterSession, value: string) => {
+    setLetterForm((form) => ({ ...form, sessions: form.sessions.map((x, i) => (i === index ? { ...x, [field]: value } : x)) }));
+  };
+
+  const handleSaveLetter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!letterGroup || letterSaving) return;
+    const sessions = letterForm.sessions.filter((x) => x.time.trim() && x.day.trim() && x.session.trim());
+    if (!letterForm.course_dates.trim() || sessions.length === 0) {
+      setLetterStatus({ type: "error", text: d("Add the course dates and at least one complete class time.", "Añade las fechas del curso y al menos un horario de clase completo.") });
+      return;
+    }
+    setLetterSaving(true);
+    setLetterStatus(null);
+    const response = await fetch(`/api/admin/welcome-letters/${letterGroup.level}/${letterGroup.group}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ course_dates: letterForm.course_dates.trim(), duration_weeks: Number(letterForm.duration_weeks) || 1, sessions })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setLetterSaving(false);
+    if (!response?.ok) {
+      setLetterStatus({ type: "error", text: (typeof payload?.detail === "string" && payload.detail) || d("The letter could not be saved. Check the fields and try again.", "No se pudo guardar la carta. Revisa los campos e inténtalo de nuevo.") });
+      return;
+    }
+    setLetters((list) => [...list.filter((l) => !(l.level === payload.level && l.group_number === payload.group_number)), payload]);
+    setLetterStatus({ type: "success", text: d("Saved. Students in this group now see the new dates and times.", "Guardado. Los estudiantes de este grupo ya ven las nuevas fechas y horarios.") });
+  };
+
   // The website chat answers only from this question-and-answer list.
   type Faq = { id: number; question: string; answer: string; language: "en" | "es"; keywords: string };
   const emptyFaq = { question: "", answer: "", keywords: "" };
@@ -673,12 +728,17 @@ export default function AdminDashboard({
 
       mirrorLocalStudentAccount(studentPayload, payload.student_id_code);
 
+      const emailNote = payload.welcome_email_sent === true
+        ? d(` Welcome email with their login details sent to ${studentPayload.email}.`, ` Correo de bienvenida con sus datos de acceso enviado a ${studentPayload.email}.`)
+        : payload.welcome_email_sent === false
+          ? d(" The welcome email could not be sent, so give them their login details yourself.", " No se pudo enviar el correo de bienvenida; dale tú sus datos de acceso.")
+          : "";
       setPeopleMessage({
         type: "success",
         text: d(
-          `Student created. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (browser fallback)" : createdViaFallback ? " (registration fallback)" : ""}`,
-          `Estudiante creado. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : createdViaFallback ? " (registro alternativo)" : ""}`
-        )
+          `Student created. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (browser fallback)" : createdViaFallback ? " (registration fallback)" : ""}.`,
+          `Estudiante creado. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : createdViaFallback ? " (registro alternativo)" : ""}.`
+        ) + emailNote
       });
       setStudentFullName("");
       setStudentEmail("");
@@ -1614,6 +1674,97 @@ export default function AdminDashboard({
           </div>
         )}
       </div>
+
+      {/* Welcome letters */}
+      <form onSubmit={handleSaveLetter} className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6 space-y-4">
+        <div className="pb-3 border-b border-slate-100 flex flex-wrap justify-between items-center gap-3">
+          <div>
+            <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center gap-2">
+              <Calendar size={14} className="text-orange-500" />
+              {d("Welcome Letters", "Cartas de Bienvenida")}
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-1 max-w-xl">
+              {d("Course dates and class times in each group's welcome letter. Each student's letter is dated the day they joined.", "Fechas del curso y horarios de clase en la carta de bienvenida de cada grupo. La carta de cada estudiante lleva la fecha del día en que se unió.")}
+            </p>
+          </div>
+          <select
+            value={letterGroupCode}
+            onChange={(e) => { setLetterGroupCode(e.target.value); setLetterStatus(null); }}
+            className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-hidden"
+          >
+            {CLASS_GROUPS.map((g) => (
+              <option key={g.code} value={g.code}>{`${g.level} ${d("Group", "Grupo")} ${g.group} – ${classGroupLabel(g)}`}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl">
+          <label className="sm:col-span-2 space-y-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">{d("Course dates", "Fechas del curso")}</span>
+            <input
+              type="text"
+              maxLength={255}
+              placeholder={d("e.g. 3 November to 12 December 2026", "ej. 3 de noviembre al 12 de diciembre de 2026")}
+              value={letterForm.course_dates}
+              onChange={(e) => setLetterForm({ ...letterForm, course_dates: e.target.value })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">{d("Length in weeks", "Duración en semanas")}</span>
+            <input
+              type="number"
+              min={1}
+              max={52}
+              value={letterForm.duration_weeks}
+              onChange={(e) => setLetterForm({ ...letterForm, duration_weeks: Number(e.target.value) })}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+          </label>
+        </div>
+
+        <div className="space-y-2 max-w-2xl">
+          <span className="text-[10px] font-bold text-slate-400 uppercase">{d("Weekly class times", "Horario semanal")}</span>
+          {letterForm.sessions.map((session, index) => (
+            <div key={index} className="grid grid-cols-[1fr_1fr_2fr_auto] gap-2">
+              <input type="text" maxLength={40} placeholder="19:00-20:00" value={session.time} onChange={(e) => updateLetterSession(index, "time", e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden min-w-0" />
+              <input type="text" maxLength={40} placeholder={d("Tuesday", "Martes")} value={session.day} onChange={(e) => updateLetterSession(index, "day", e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden min-w-0" />
+              <input type="text" maxLength={120} placeholder={d("Grammar-Lab", "Laboratorio de gramática")} value={session.session} onChange={(e) => updateLetterSession(index, "session", e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs focus:outline-hidden min-w-0" />
+              <button
+                type="button"
+                onClick={() => setLetterForm((form) => ({ ...form, sessions: form.sessions.filter((_, i) => i !== index) }))}
+                className="p-2 text-slate-300 hover:text-rose-500 rounded-lg cursor-pointer"
+                title={d("Remove this class time", "Quitar este horario")}
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          ))}
+          {letterForm.sessions.length < 12 && (
+            <button
+              type="button"
+              onClick={() => setLetterForm((form) => ({ ...form, sessions: [...form.sessions, { time: "", day: "", session: "" }] }))}
+              className="text-[11px] font-bold text-orange-600 hover:text-orange-500 cursor-pointer inline-flex items-center gap-1"
+            >
+              <Plus size={12} />
+              {d("Add a class time", "Añadir un horario")}
+            </button>
+          )}
+        </div>
+
+        {letterStatus && (
+          <p role={letterStatus.type === "error" ? "alert" : "status"} className={`max-w-2xl rounded-xl border px-3 py-2 text-xs font-semibold ${letterStatus.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+            {letterStatus.text}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={letterSaving}
+          className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-60 transition cursor-pointer"
+        >
+          {letterSaving ? d("Saving...", "Guardando...") : d("Save welcome letter", "Guardar carta de bienvenida")}
+        </button>
+      </form>
 
       {/* Chatbot answers */}
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6 space-y-4">

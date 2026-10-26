@@ -24,6 +24,20 @@ class LoginRequest(BaseModel):
 class PasswordForgotRequest(BaseModel):
     email: EmailStr
 
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=72)
+    new_password: str = Field(min_length=8, max_length=72)
+
+class WelcomeLetterSession(BaseModel):
+    time: str = Field(min_length=1, max_length=40)
+    day: str = Field(min_length=1, max_length=40)
+    session: str = Field(min_length=1, max_length=120)
+
+class WelcomeLetterUpsert(BaseModel):
+    course_dates: str = Field(min_length=1, max_length=255)
+    duration_weeks: int = Field(ge=1, le=52)
+    sessions: List[WelcomeLetterSession] = Field(min_length=1, max_length=12)
+
 class AdminPasswordReset(BaseModel):
     email: EmailStr
 
@@ -79,6 +93,7 @@ class StudentResponse(BaseModel):
     status: str
     registration_date: datetime
     user: UserResponse
+    welcome_email_sent: Optional[bool] = None
 
     class Config:
         from_attributes = True

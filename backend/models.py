@@ -371,6 +371,20 @@ class BlogPost(Base):
     published = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class WelcomeLetter(Base):
+    """Course dates and weekly class times shown in a group's welcome letter."""
+
+    __tablename__ = "welcome_letters"
+    __table_args__ = (UniqueConstraint("level", "group_number", name="uq_welcome_letters_level_group"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    level = Column(String(5), nullable=False)
+    group_number = Column(Integer, nullable=False)
+    course_dates = Column(String(255), nullable=False)
+    duration_weeks = Column(Integer, nullable=False)
+    sessions = Column(Text, nullable=False)  # JSON list of {"time", "day", "session"}
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
 class HiddenBuiltinArticle(Base):
     """A built-in blog article (written in the site's code) the admin removed from the website."""
 
