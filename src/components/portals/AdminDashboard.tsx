@@ -464,6 +464,37 @@ export default function AdminDashboard({
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [creatingTeacher, setCreatingTeacher] = useState(false);
 
+  // Give a student or tutor who forgot their password a new temporary one.
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [resetResult, setResetResult] = useState<{ type: "success" | "error"; text: string; password?: string } | null>(null);
+
+  const handleAdminResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const email = resetEmail.trim();
+    if (!email || resetting) return;
+    if (!window.confirm(d(`Give ${email} a new temporary password? Their current password will stop working.`, `¿Dar a ${email} una nueva contraseña temporal? Su contraseña actual dejará de funcionar.`))) return;
+    setResetting(true);
+    setResetResult(null);
+    const response = await fetch("/api/admin/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setResetting(false);
+    if (!response?.ok) {
+      setResetResult({ type: "error", text: (typeof payload?.detail === "string" && payload.detail) || d("The password could not be reset. Try again.", "No se pudo restablecer la contraseña. Inténtalo de nuevo.") });
+      return;
+    }
+    setResetResult({
+      type: "success",
+      text: d(`New temporary password for ${payload.full_name || payload.email}. Send it to them privately (for example on WhatsApp):`, `Nueva contraseña temporal para ${payload.full_name || payload.email}. Envíasela en privado (por ejemplo por WhatsApp):`),
+      password: payload.temporary_password
+    });
+    setResetEmail("");
+  };
+
   const [studentFullName, setStudentFullName] = useState("");
   const [studentEmail, setStudentEmail] = useState("");
   const [studentPassword, setStudentPassword] = useState("");
@@ -1063,6 +1094,42 @@ export default function AdminDashboard({
             </div>
           </form>
         </div>
+
+        <form onSubmit={handleAdminResetPassword} className="border-t border-slate-100 pt-4 space-y-3">
+          <div>
+            <h4 className="font-black text-slate-900 text-xs uppercase tracking-wider">
+              {d("Reset a Password", "Restablecer una Contraseña")}
+            </h4>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {d("For a student or tutor who forgot their password. You get a new temporary password to send them.", "Para un estudiante o tutor que olvidó su contraseña. Recibirás una contraseña temporal para enviársela.")}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 max-w-xl">
+            <input
+              type="email"
+              required
+              placeholder={d("Their login email", "Su correo de acceso")}
+              value={resetEmail}
+              onChange={(e) => setResetEmail(e.target.value)}
+              className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+            />
+            <button
+              type="submit"
+              disabled={resetting || !resetEmail.trim()}
+              className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-teal-700 hover:bg-teal-600 disabled:bg-slate-200 disabled:text-slate-400 transition cursor-pointer"
+            >
+              {resetting ? d("Resetting...", "Restableciendo...") : d("Reset password", "Restablecer contraseña")}
+            </button>
+          </div>
+          {resetResult && (
+            <div role={resetResult.type === "error" ? "alert" : "status"} className={`p-3 rounded-2xl text-xs font-semibold border max-w-xl ${resetResult.type === "success" ? "bg-emerald-50 text-emerald-800 border-emerald-100" : "bg-rose-50 text-rose-800 border-rose-100"}`}>
+              <p>{resetResult.text}</p>
+              {resetResult.password && (
+                <p className="mt-2 font-mono text-base tracking-wider text-slate-900 select-all">{resetResult.password}</p>
+              )}
+            </div>
+          )}
+        </form>
       </div>
 
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">

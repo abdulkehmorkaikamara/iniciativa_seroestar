@@ -55,7 +55,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     heroFeatureEdu: "Expert Educators",
     heroFeatureEduDesc: "Bilingual tutors mapping native Spanish verb subtleties directly into your native English frameworks.",
     heroFeatureGroup: "Small & Custom Groups",
-    heroFeatureGroupDesc: "Maximum of 6 adult peers per cohort to guarantee personalized focus and stress-free pronunciation practice.",
+    heroFeatureGroupDesc: "Up to 16 participants per session, so everyone gets personal attention and time to practise speaking.",
     heroFeatureResults: "Proven Results",
     heroFeatureResultsDesc: "Designed to help you achieve a relaxed 15-minute conversation in as little as 8 weeks",
 
@@ -84,7 +84,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
       2: {
         title: "Collaborative Didactics",
         subtitle: "Small-Group Methodology",
-        description: "Learning in groups of up to 6 students. Our didactics center on collaborative tasks."
+        description: "Learning in groups of up to 16 participants. Our teaching centres on collaborative tasks."
       },
       3: {
         title: "Personalized Content",
@@ -344,7 +344,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     heroFeatureEdu: "Educadores Expertos",
     heroFeatureEduDesc: "Tutores bilingües que conectan los matices del español nativo directamente con tus estructuras de inglés nativo.",
     heroFeatureGroup: "Grupos Pequeños y Personalizados",
-    heroFeatureGroupDesc: "Un máximo de 6 compañeros adultos por cohorte para garantizar un enfoque personalizado y práctica de pronunciación sin estrés.",
+    heroFeatureGroupDesc: "Hasta 16 participantes por sesión, para que todos reciban atención personal y tiempo para practicar la conversación.",
     heroFeatureResults: "Resultados Probados",
     heroFeatureResultsDesc: "Diseñado para ayudarte a lograr una conversación relajada de 15 minutos en tan solo 8 semanas",
 
@@ -373,7 +373,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
       2: {
         title: "Didácticas Colaborativas",
         subtitle: "Metodología de Grupos Pequeños",
-        description: "Aprendizaje en grupos de hasta 6 estudiantes. Nuestras didácticas se centran en tareas colaborativas."
+        description: "Aprendizaje en grupos de hasta 16 participantes. Nuestra enseñanza se centra en tareas colaborativas."
       },
       3: {
         title: "Contenido Personalizado",

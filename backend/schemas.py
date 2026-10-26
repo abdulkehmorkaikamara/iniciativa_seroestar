@@ -24,6 +24,9 @@ class LoginRequest(BaseModel):
 class PasswordForgotRequest(BaseModel):
     email: EmailStr
 
+class AdminPasswordReset(BaseModel):
+    email: EmailStr
+
 class PasswordResetRequest(BaseModel):
     token: str = Field(min_length=20, max_length=2048)
     new_password: str = Field(min_length=12, max_length=72)

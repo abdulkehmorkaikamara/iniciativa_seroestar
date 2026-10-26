@@ -98,7 +98,7 @@ export const METHODOLOGY_STEPS: MethodologyStep[] = [
     stepNumber: 2,
     title: "Collaborative Didactics",
     subtitle: "Small-Group Methodology",
-    description: "Learning in groups of up to 6 students. Our didactics center on collaborative tasks.",
+    description: "Learning in groups of up to 16 participants. Our teaching centres on collaborative tasks.",
     iconName: "Repeat"
   },
   {
