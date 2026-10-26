@@ -55,31 +55,31 @@ import { CLASS_GROUPS } from "./groups";
 const HERO_SLIDES_EN = [
   {
     image: "/images/spanish_classroom_hero_1782078041463.webp",
-    title: "MASTER SPANISH FROM ZERO.",
+    title: "Master Spanish from zero.",
     badge: "Ser (Why) vs Estar (How)",
     description: "Interactive online & in-person lessons designed to build confidence in communication with professional Spanish educators. Adult cognitive metaphors designed specifically for English speakers."
   },
   {
     image: "/images/spain_travel_guide_1782078073592.webp",
-    title: "DISCOVER THE SPANISH WORLD.",
+    title: "Discover the Spanish-speaking world.",
     badge: "Cultural Infusion",
     description: "Connect deeply with the culture, master emotional communication, and experience the richness of native Spanish."
   },
   {
     image: "/images/ser_estar_mistakes_1782078058079.webp",
-    title: "CONQUER GRAMMAR PITFALLS.",
+    title: "Conquer grammar pitfalls.",
     badge: "Cognitive Pedagogy",
     description: "Unravel confusing grammar rules with ease. Understand the subtle, logical difference between state transformations and core identity descriptors."
   },
   {
     image: "/images/bilingual_brain_workout_1782078086117.webp",
-    title: "BILINGUAL MIND WORKOUT.",
+    title: "A workout for your bilingual mind.",
     badge: "Neuroplastic Fitness",
     description: "Forget dry textbooks. Our methodology keeps your mind active through dynamic conversational drills, sensory aids, and personalized feedback."
   },
   {
     image: "/images/graduation_celebration_1783328370899.webp",
-    title: "CELEBRATE YOUR MILESTONES.",
+    title: "Celebrate your milestones.",
     badge: "Active Graduation Cohort",
     description: "Join a supportive community of adult learners who celebrate every breakthrough together. Experience the joy of real fluency with our structured, social methodology."
   }
@@ -88,31 +88,31 @@ const HERO_SLIDES_EN = [
 const HERO_SLIDES_ES = [
   {
     image: "/images/spanish_classroom_hero_1782078041463.webp",
-    title: "DOMINA EL ESPAÑOL DESDE CERO.",
+    title: "Domina el español desde cero.",
     badge: "Ser (Por qué) vs Estar (Cómo)",
     description: "Lecciones interactivas en línea y presenciales diseñadas para generar confianza en la comunicación con educadores profesionales de español. Metáforas cognitivas para adultos diseñadas específicamente para angloparlantes."
   },
   {
     image: "/images/spain_travel_guide_1782078073592.webp",
-    title: "DESCUBRE EL MUNDO HISPANO.",
+    title: "Descubre el mundo hispano.",
     badge: "Infusión Cultural",
     description: "Conéctate profundamente con la cultura, domina la comunicación emocional y experimenta la riqueza del español nativo."
   },
   {
     image: "/images/ser_estar_mistakes_1782078058079.webp",
-    title: "CONQUISTA LOS ERRORES GRAMATICALES.",
+    title: "Conquista los errores gramaticales.",
     badge: "Pedagogía Cognitiva",
     description: "Resuelve las confusas reglas gramaticales con facilidad. Comprende la sutil diferencia lógica entre las transformaciones de estado y los descriptores de identidad central."
   },
   {
     image: "/images/bilingual_brain_workout_1782078086117.webp",
-    title: "ENTRENAMIENTO MENTAL BILINGÜE.",
+    title: "Entrenamiento mental bilingüe.",
     badge: "Acondicionamiento Neuroplástico",
     description: "Olvídate de los libros de texto aburridos. Nuestra metodología mantiene tu mente activa mediante prácticas de conversación dinámicas, ayudas sensoriales y retroalimentación personalizada."
   },
   {
     image: "/images/graduation_celebration_1783328370899.webp",
-    title: "CELEBRA TUS LOGROS.",
+    title: "Celebra tus logros.",
     badge: "Cohorte de Graduación Activa",
     description: "Únete a una comunidad de apoyo de estudiantes adultos que celebran cada logro juntos. Experimenta la alegría de la fluidez real con nuestra metodología estructurada y social."
   }
@@ -893,7 +893,7 @@ export default function App() {
             {/* 3. Hero Section with Picture Slideshow Animation */}
             {activeView === "home" && (
               <>
-            <header id="home" className="relative m-4 sm:m-6 lg:m-8 rounded-3xl overflow-hidden min-h-[75vh] flex items-center bg-slate-900 shadow-xl border-4 border-white">
+            <header id="home" className="relative m-3 sm:m-6 lg:m-8 rounded-3xl overflow-hidden min-h-[560px] md:min-h-[78vh] flex items-end md:items-center bg-slate-900 shadow-xl">
               {/* Backlit generated slideshow images wrap */}
               <div className="absolute inset-0 z-0 overflow-hidden">
                 <AnimatePresence mode="popLayout">
@@ -902,22 +902,23 @@ export default function App() {
                     src={imageOverrides["Hero Banner"] && currentHeroSlide === 0 ? imageOverrides["Hero Banner"] : heroSlides[currentHeroSlide].image}
                     alt={heroSlides[currentHeroSlide].title}
                     initial={{ opacity: 0, scale: 1.08, filter: "blur(4px)" }}
-                    animate={{ opacity: 0.38, scale: 1, filter: "blur(0px)" }}
+                    animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
                     exit={{ opacity: 0, scale: 0.96 }}
                     transition={{ duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
                     referrerPolicy="no-referrer"
-                    className="absolute inset-0 w-full h-full object-cover object-center"
+                    className="absolute inset-0 w-full h-full object-cover object-center md:object-right"
                   />
                 </AnimatePresence>
-                {/* Visual Backdrop Overlay Gradients */}
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/65 to-transparent z-10" />
-                <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-950/40 to-transparent z-10" />
+                {/* Keep the photo bright on the right; darken only behind the text.
+                    Phones: from the bottom, where the text sits. Wider: from the left. */}
+                <div className="absolute inset-0 z-10 bg-gradient-to-t from-slate-950 via-slate-950/75 to-slate-950/5 md:hidden" />
+                <div className="absolute inset-0 z-10 hidden md:block bg-gradient-to-r from-slate-950 via-slate-950/80 to-slate-950/0" />
               </div>
 
-              <div className="relative z-10 max-w-5xl mx-auto px-6 sm:px-10 lg:px-12 py-16 md:py-24 w-full">
+              <div className="relative z-10 max-w-6xl mx-auto px-6 sm:px-10 lg:px-14 pt-40 pb-16 md:py-24 w-full">
                 
                 {/* Left Side Content column (Fades & shifts on slide changes) */}
-                <div className="max-w-2xl space-y-8 text-left">
+                <div className="max-w-xl space-y-7 text-left">
                   <AnimatePresence mode="wait">
                     <motion.div
                       key={currentHeroSlide}
@@ -935,14 +936,14 @@ export default function App() {
 
                       {/* Headline and Narrative */}
                       <div className="space-y-4">
-                        <h1 className="font-sans font-black text-4xl sm:text-5xl md:text-6xl text-white tracking-tight leading-none uppercase">
+                        <h1 className="font-sans font-black text-[2.4rem] sm:text-5xl md:text-6xl text-white tracking-tight leading-[1.05]">
                           {heroSlides[currentHeroSlide].title.split(" ").map((word, index, arr) => {
                             const isHighlighted = 
                               word === "ZERO." || word === "WORLD." || word === "PITFALLS." || word === "WORKOUT." ||
                               word === "CERO." || word === "HISPANO." || word === "GRAMATICALES." || word === "BILINGÜE." ||
                               index === arr.length - 1;
                             if (isHighlighted) {
-                              return <span key={index} className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-400 block sm:inline">{word} </span>;
+                              return <span key={index} className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-400">{word} </span>;
                             }
                             return <span key={index}>{word} </span>;
                           })}
@@ -1025,7 +1026,7 @@ export default function App() {
           <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
             <div className="text-center max-w-2xl mx-auto space-y-3">
               <div className="text-xs font-bold text-orange-600 uppercase tracking-widest">{t.whyIntro}</div>
-              <h2 className="font-sans font-extrabold text-3xl sm:text-4xl text-slate-950 tracking-tight leading-tight uppercase">
+              <h2 className="font-sans font-extrabold text-3xl sm:text-4xl text-slate-950 tracking-tight leading-tight">
                 {t.whyTitle}
               </h2>
               <div className="h-1.5 w-16 bg-orange-500 mx-auto rounded-full" />
@@ -1114,8 +1115,8 @@ export default function App() {
         {/* Simplified Programs Teaser for quick homepage access */}
         <section className="py-12 bg-white border-t border-gray-100">
           <div className="max-w-4xl mx-auto px-4 text-center space-y-6">
-            <h3 className="font-sans font-black text-xl sm:text-2xl text-slate-900 tracking-tight leading-none uppercase">
-              {courseLang === "EN" ? "ACADEMY COURSE MODULES & DIRECT SYLLABUS" : "MÓDULOS DE CURSO Y PLAN DE ESTUDIOS DE LA ACADEMIA"}
+            <h3 className="font-sans font-black text-xl sm:text-2xl text-slate-900 tracking-tight leading-none">
+              {courseLang === "EN" ? "Courses and syllabus" : "Cursos y plan de estudios"}
             </h3>
             <p className="text-slate-600 text-xs sm:text-sm max-w-xl mx-auto leading-relaxed">
               {courseLang === "EN"
@@ -1192,8 +1193,8 @@ export default function App() {
                   <div className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">
                     {courseLang === "EN" ? "Our Vibrant Community" : "Nuestra Comunidad Vibrante"}
                   </div>
-                  <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight uppercase">
-                    {courseLang === "EN" ? "CELEBRATING SUCCESS TOGETHER" : "CELEBRANDO EL ÉXITO JUNTOS"}
+                  <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight">
+                    {courseLang === "EN" ? "Celebrating success together" : "Celebrando el éxito juntos"}
                   </h3>
                   <div className="h-1 w-12 bg-orange-500 rounded-full" />
                 </div>
@@ -1218,8 +1219,8 @@ export default function App() {
               <div className="text-xs font-bold text-orange-400 uppercase tracking-widest">
                 {courseLang === "EN" ? "Our Blueprint" : "Nuestro Plan de Trabajo"}
               </div>
-              <h2 className="font-sans font-black text-3xl sm:text-4xl text-white tracking-tight leading-tight uppercase">
-                {courseLang === "EN" ? "OUR METHODOLOGY" : "NUESTRA METODOLOGÍA"}
+              <h2 className="font-sans font-black text-3xl sm:text-4xl text-white tracking-tight leading-tight">
+                {courseLang === "EN" ? "Our methodology" : "Nuestra metodología"}
               </h2>
               <div className="h-1.5 w-16 bg-orange-500 mx-auto rounded-full" />
               <p className="text-xs sm:text-sm text-teal-100/90 leading-relaxed max-w-lg mx-auto font-sans">
@@ -1291,8 +1292,8 @@ export default function App() {
               <div className="text-xs font-bold text-orange-600 uppercase tracking-widest">
                 {courseLang === "EN" ? "Our Syllabus" : "Nuestro Plan de Estudios"}
               </div>
-              <h2 className="font-sans font-extrabold text-3xl sm:text-4xl text-slate-950 tracking-tight leading-tight uppercase">
-                {courseLang === "EN" ? "OUR COURSES" : "NUESTROS CURSOS"}
+              <h2 className="font-sans font-extrabold text-3xl sm:text-4xl text-slate-950 tracking-tight leading-tight">
+                {courseLang === "EN" ? "Our courses" : "Nuestros cursos"}
               </h2>
               <div className="h-1.5 w-16 bg-orange-500 mx-auto rounded-full" />
               <div className="flex justify-center pt-2">
@@ -1540,8 +1541,8 @@ export default function App() {
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-16">
             <div className="text-center max-w-2xl mx-auto space-y-3">
               <div className="text-xs font-bold text-teal-600 uppercase tracking-widest">{courseLang === "EN" ? "Community feedback" : "Opiniones de la comunidad"}</div>
-              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight uppercase">
-                {courseLang === "EN" ? "STUDENT VOICE" : "LA VOZ DEL ESTUDIANTE"}
+              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight">
+                {courseLang === "EN" ? "What our students say" : "Lo que dicen nuestros estudiantes"}
               </h2>
               <div className="h-1.5 w-16 bg-teal-500 mx-auto rounded-full" />
             </div>
@@ -1611,11 +1612,11 @@ export default function App() {
               </div>
 
               {/* Small interactive feedback submit form */}
-              <div className="lg:col-span-5 bg-indigo-950 text-white rounded-3xl p-6 sm:p-8 space-y-6 border border-indigo-905 shadow-xl relative overflow-hidden">
+              <div className="lg:col-span-5 bg-slate-900 text-white rounded-3xl p-6 sm:p-8 space-y-6 border border-slate-800 shadow-xl relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 rounded-full blur-2xl pointer-events-none" />
                 <div className="space-y-1.5">
-                  <h3 className="font-sans font-bold text-lg text-white">{courseLang === "EN" ? "Share Your Initiative Voice" : "Comparte tu experiencia"}</h3>
-                  <p className="text-xs text-indigo-200/80 leading-normal">
+                  <h3 className="font-sans font-bold text-lg text-white">{courseLang === "EN" ? "Share your experience" : "Comparte tu experiencia"}</h3>
+                  <p className="text-xs text-slate-300 leading-normal">
                     {courseLang === "EN"
                       ? "Are you studying with us or finished a trial lesson? Add your rating and comment directly below."
                       : "¿Estudias con nosotros o ya terminaste una clase de prueba? Añade tu valoración y comentario a continuación."}
@@ -1637,7 +1638,7 @@ export default function App() {
                     <div className="grid grid-cols-2 gap-4">
                       {/* Name input */}
                       <div className="space-y-1">
-                        <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300">{courseLang === "EN" ? "Name" : "Nombre"}</label>
+                        <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-300">{courseLang === "EN" ? "Name" : "Nombre"}</label>
                         <input
                           type="text"
                           required
@@ -1645,28 +1646,28 @@ export default function App() {
                           value={feedbackName}
                           onChange={(e) => setFeedbackName(e.target.value)}
                           placeholder={courseLang === "EN" ? "e.g. Sarah J." : "p. ej., Sarah J."}
-                          className="w-full px-3 py-2 bg-indigo-900/40 border border-indigo-800 rounded-lg text-xs text-white placeholder-indigo-400 focus:outline-hidden focus:border-orange-500"
+                          className="w-full px-3 py-2 bg-white/5 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-orange-500"
                         />
                       </div>
 
                       {/* Title input */}
                       <div className="space-y-1">
-                        <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300">{courseLang === "EN" ? "Profession / City" : "Profesión / Ciudad"}</label>
+                        <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-300">{courseLang === "EN" ? "Profession / City" : "Profesión / Ciudad"}</label>
                         <input
                           type="text"
                           maxLength={100}
                           value={feedbackTitle}
                           onChange={(e) => setFeedbackTitle(e.target.value)}
                           placeholder={courseLang === "EN" ? "e.g. Chicago, USA" : "p. ej., Madrid, España"}
-                          className="w-full px-3 py-2 bg-indigo-900/40 border border-indigo-800 rounded-lg text-xs text-white placeholder-indigo-400 focus:outline-hidden focus:border-orange-500"
+                          className="w-full px-3 py-2 bg-white/5 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-orange-500"
                         />
                       </div>
                     </div>
 
                     {/* Star Rating selector */}
                     <div className="space-y-1">
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300 block">{courseLang === "EN" ? "Rating score" : "Puntuación"}</span>
-                      <div className="flex space-x-1.5 p-1 bg-indigo-900/40 border border-indigo-850 rounded-xl justify-center">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-300 block">{courseLang === "EN" ? "Rating score" : "Puntuación"}</span>
+                      <div className="flex space-x-1.5 p-1 bg-white/5 border border-slate-700 rounded-xl justify-center">
                         {[1, 2, 3, 4, 5].map((num) => (
                           <button
                             key={num}
@@ -1678,7 +1679,7 @@ export default function App() {
                             <Star
                               size={20}
                               className={`transition-colors ${
-                                num <= feedbackRating ? "fill-current text-orange-400" : "text-indigo-700"
+                                num <= feedbackRating ? "fill-current text-orange-400" : "text-slate-600"
                               }`}
                             />
                           </button>
@@ -1688,15 +1689,15 @@ export default function App() {
 
                     {/* Review text */}
                     <div className="space-y-1">
-                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-indigo-300">{courseLang === "EN" ? "Your Experience" : "Tu experiencia"}</label>
+                      <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-300">{courseLang === "EN" ? "Your Experience" : "Tu experiencia"}</label>
                       <textarea
                         required
                         maxLength={1500}
                         value={feedbackText}
                         onChange={(e) => setFeedbackText(e.target.value)}
-                        placeholder={courseLang === "EN" ? "Explain how Iniciativa Ser o Estar changed your learning paradigm..." : "Cuéntanos cómo Iniciativa Ser o Estar transformó tu forma de aprender..."}
+                        placeholder={courseLang === "EN" ? "Tell us about your classes and what you learned..." : "Cuéntanos cómo Iniciativa Ser o Estar transformó tu forma de aprender..."}
                         rows={3}
-                        className="w-full px-3 py-2.5 bg-indigo-900/40 border border-indigo-800 rounded-lg text-xs text-white placeholder-indigo-400 focus:outline-hidden focus:border-orange-500 leading-relaxed"
+                        className="w-full px-3 py-2.5 bg-white/5 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-orange-500 leading-relaxed"
                       />
                     </div>
 
@@ -1716,7 +1717,7 @@ export default function App() {
                       <p role="alert" className="rounded-lg border border-rose-400/40 bg-rose-950/40 px-3 py-2 text-xs text-rose-200">{feedbackError}</p>
                     )}
 
-                    <p className="text-[10px] text-indigo-300/80">
+                    <p className="text-[10px] text-slate-400">
                       {courseLang === "EN" ? "Reviews are checked by our team before they appear on the website." : "Nuestro equipo revisa las reseñas antes de publicarlas en la web."}
                     </p>
 
@@ -1742,8 +1743,8 @@ export default function App() {
           <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 space-y-14">
             <div className="text-center max-w-2xl mx-auto space-y-3">
               <div className="text-xs font-bold text-orange-600 uppercase tracking-widest">{courseLang === "EN" ? "Self study matrix" : "Guía de autoestudio"}</div>
-              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight uppercase">
-                {courseLang === "EN" ? "FROM OUR BLOG: Spanish Tips & Culture" : "NUESTRO BLOG: CONSEJOS DE ESPAÑOL Y CULTURA"}
+              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight">
+                {courseLang === "EN" ? "From our blog: Spanish tips & culture" : "Nuestro blog: consejos de español y cultura"}
               </h2>
               <div className="h-1.5 w-16 bg-orange-500 mx-auto rounded-full" />
               <p className="text-xs text-slate-500 max-w-md mx-auto leading-normal">
@@ -1826,8 +1827,8 @@ export default function App() {
               <div className="text-xs font-bold text-teal-600 uppercase tracking-widest">
                 {courseLang === "EN" ? "Our story" : "Nuestra historia"}
               </div>
-              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight uppercase">
-                {courseLang === "EN" ? "ABOUT US" : "SOBRE NOSOTROS"}
+              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-tight">
+                {courseLang === "EN" ? "About us" : "Sobre nosotros"}
               </h2>
               <div className="h-1.5 w-16 bg-teal-500 mx-auto rounded-full" />
             </div>
@@ -1977,8 +1978,8 @@ export default function App() {
                     {courseLang === "EN" ? "Academic Excellence" : "Excelencia Académica"}
                   </span>
                 </div>
-                <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight uppercase">
-                  {courseLang === "EN" ? "MEET OUR INSTRUCTOR TEAM" : "CONOCE A NUESTRO EQUIPO DE INSTRUCTORES"}
+                <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight">
+                  {courseLang === "EN" ? "Meet our team" : "Conoce a nuestro equipo"}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
                   {courseLang === "EN"
@@ -2168,8 +2169,8 @@ export default function App() {
                     {courseLang === "EN" ? "Strategic Alliances" : "Alianzas Estratégicas"}
                   </span>
                 </div>
-                <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight uppercase">
-                  {courseLang === "EN" ? "OUR ESTEEMED PARTNERS" : "NUESTROS PRESTIGIOSOS SOCIOS"}
+                <h3 className="font-sans font-black text-2xl sm:text-3xl text-slate-900 tracking-tight leading-tight">
+                  {courseLang === "EN" ? "Our partners" : "Nuestros socios"}
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-500 max-w-lg mx-auto">
                   {courseLang === "EN"
@@ -2264,8 +2265,8 @@ export default function App() {
           <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center space-y-10">
             <div className="space-y-3 max-w-xl mx-auto">
               <span className="text-xs font-bold text-orange-600 uppercase tracking-widest block">{courseLang === "EN" ? "Get started" : "Comienza ahora"}</span>
-              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-none uppercase">
-                {courseLang === "EN" ? "READY TO MASTER SPANISH WITH INICIATIVA SER o ESTAR?" : "¿LISTO PARA DOMINAR EL ESPAÑOL CON INICIATIVA SER o ESTAR?"}
+              <h2 className="font-sans font-black text-3xl sm:text-4xl text-slate-900 tracking-tight leading-none">
+                {courseLang === "EN" ? "Ready to learn Spanish with Iniciativa Ser o Estar?" : "¿Listo para aprender español con Iniciativa Ser o Estar?"}
               </h2>
               <div className="h-1.5 w-16 bg-orange-500 mx-auto rounded-full" />
               <p className="text-slate-600 text-xs sm:text-sm leading-relaxed pt-1">
@@ -2496,7 +2497,7 @@ export default function App() {
         <button
           id="floating-blue-guide-chat-btn"
           onClick={() => setChatOpen(!chatOpen)}
-          className="p-4 rounded-full bg-sky-600 hover:bg-sky-500 active:bg-sky-700 text-white shadow-xl shadow-sky-600/30 transition hover:scale-105 shrink-0 cursor-pointer"
+          className="p-4 rounded-full bg-[#0B4C9C] hover:bg-[#0d5bb8] active:bg-[#093f82] text-white shadow-xl shadow-blue-900/30 transition hover:scale-105 shrink-0 cursor-pointer"
           title={courseLang === "EN" ? "Interactive Help" : "Ayuda interactiva"}
         >
           {chatOpen ? <X size={24} /> : <MessageSquare size={24} />}
