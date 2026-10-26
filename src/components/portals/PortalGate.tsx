@@ -6,13 +6,11 @@ import {
   User, 
   CheckCircle2, 
   AlertTriangle, 
-  Chrome, 
   ChevronRight, 
   ArrowLeft, 
   Sparkles,
   KeyRound,
-  Fingerprint,
-  Info
+  Fingerprint
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -50,11 +48,9 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showGoogleSSOPopup, setShowGoogleSSOPopup] = useState(false);
   const [providerLoginMessage, setProviderLoginMessage] = useState("");
 
   const t = TRANSLATIONS[lang];
-  const enableDemoAuth = false;
 
   const returnToLogin = () => {
     window.history.replaceState({}, "", window.location.pathname);
@@ -297,113 +293,6 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
         }
       }
     })().finally(() => setLoading(false));
-  };
-
-  // Google SSO Simulation handler
-  const handleTriggerGoogleSSO = () => {
-    setError("");
-    setShowGoogleSSOPopup(true);
-  };
-
-  const handleCompleteGoogleSSO = (googleEmail: string, googleName: string) => {
-    setShowGoogleSSOPopup(false);
-    setLoading(true);
-
-    setTimeout(() => {
-      setLoading(false);
-      const studentCode = `SSO-${Math.floor(Math.random() * 800) + 120}`;
-      const ssoProfile = {
-        fullName: googleName,
-        email: googleEmail,
-        studentIdCode: studentCode,
-        courseLevel: "A1",
-        classGroup: "Morning Group",
-        learningMode: "Online (SSO)",
-        authMethod: "Google SSO"
-      };
-
-      // Save student SSO profile locally
-      const registeredUsers = JSON.parse(localStorage.getItem("portal_students") || "[]");
-      const exists = registeredUsers.find((u: any) => u.email.toLowerCase() === googleEmail.toLowerCase());
-      if (!exists) {
-        registeredUsers.push(ssoProfile);
-        localStorage.setItem("portal_students", JSON.stringify(registeredUsers));
-
-        // Since new SSO users default to A1, trigger welcome email and mailbox pre-population
-        const welcomeMail = {
-          id: "welcome-letter-mail",
-          instructor: "Iniciativa Ser o Estar",
-          subject: "Official Welcome Letter - Group 1 Intensive A1 Spanish Course",
-          text: `Dear Group 1 Participant,
-
-On behalf of Iniciativa Ser o Estar (ISoE), it is our pleasure to officially welcome you to the intensive A1 Spanish course. This program is tailored for beginners who are passionate about starting their journey toward Spanish fluency.
-
-Student ID: ${studentCode}
-
-Classes are online, and will be held on:
-Course dates: 19 May to 27 June 2026 (six weeks of intensive learning)
-
-Time | Day | Hours by Session | Session
-19:00-20:00 | Tuesday | 1 | Grammar-Lab
-19:00-20:00 | Thursday | 1 | Vocabulary & Conversation
-10:00-11:00 | Saturday | 1 | Listening Practice. Review
-11:00-12:00 | Saturday | 1 | Final Project Coaching. (Week 3-6)
-
-WORKING PLAN OVERVIEW:
-• Grammar Lab: Focused sessions on essential Spanish grammar topics.
-• Vocabulary & Conversation: Practical vocabulary building and interactive speaking exercises.
-• Listening Practice: Activities to improve comprehension and pronunciation.
-• Progress Assessments: Periodic evaluations to track progress and address learning gaps.
-• Coaching on participant final project design and rehearsals.
-• Max 16 participants per session.
-• One recovery class available every two weeks.
-
-CERTIFICATION PROCESS:
-For this six-week A1 Spanish Intensive Course, a certificate of participation will be awarded by the Embassy of Spain in Guinea and Sierra Leone, in partnership with the Honorary Consulate of Spain in Freetown.
-
-Requirements: Attendance is the main criterion.
-If your attendance is below 85%, you may continue with the course by paying a registration fee of 250 leones. This fee is reimbursable if you attend at least 80% of the course.
-
-A minimum of 80% attendance is required for certification.
-
-If your attendance is below 80%, the registration fee is not reimbursable. You may continue attending the remaining classes and you will receive all course materials; however, a certificate of participation will not be issued in this case.
-
-OFFICIAL REGISTRATION:
-If you are still interested in improving your Spanish skills through this course, kindly confirm your acceptance of this letter via email or WhatsApp.
-
-Once you have confirmed, you will receive:
-- Participant Card
-- Detailed Working Plan
-- Schedule with specific dates and activities.
-- Address and access to interactive classroom in Freetown. Available for those who consider it an ideal option to have access to steady power supply and internet. This option also provides the opportunity to interact one on one with other participants.
-
-We look forward to supporting your learning journey and ensuring your experience is both enjoyable and productive.
-
-¡Nos vemos pronto!
-Saludos del Equipo de Iniciativa Ser o Estar
-
-Contact: +232 72 057646 | seroestar@icloud.com
-May 2026`,
-          date: "2026-05-19",
-          status: "DELIVERED"
-        };
-        localStorage.setItem(`emails_${studentCode}`, JSON.stringify([welcomeMail]));
-
-        // Trigger the backend API to send Gmail
-        fetch("/api/send-welcome", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({ email: googleEmail, fullName: googleName, studentIdCode: studentCode })
-        })
-        .then(res => res.json())
-        .then(data => console.log("Welcome email status (SSO):", data))
-        .catch(err => console.error("Error triggering welcome email (SSO):", err));
-      }
-
-      onSuccess(exists || ssoProfile);
-    }, 600);
   };
 
   return (
@@ -704,154 +593,8 @@ May 2026`,
           </form>
         )}
 
-        {/* Separator / Google SSO */}
-        {role === "student" && authMode === "login" && enableDemoAuth && (
-          <div className="space-y-4">
-            <div className="relative flex py-1 items-center">
-              <div className="flex-grow border-t border-slate-150"></div>
-              <span className="flex-shrink mx-3 text-[10px] text-slate-400 font-mono uppercase tracking-widest">
-                {lang === "EN" ? "or integrate security" : "o integre seguridad"}
-              </span>
-              <div className="flex-grow border-t border-slate-150"></div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleTriggerGoogleSSO}
-              className="w-full py-2.5 px-4 border border-slate-200 hover:border-slate-350 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition flex items-center justify-center space-x-2.5 cursor-pointer"
-            >
-              <Chrome size={15} className="text-[#4285F4] shrink-0" />
-              <span>{t.gateLabelGoogleBtn}</span>
-            </button>
-
-            {/* Single Sign-on details */}
-            <div className="bg-slate-50 border border-slate-200/50 p-3 rounded-2xl flex items-start space-x-2.5 text-left">
-              <Info size={14} className="text-teal-600 mt-0.5 shrink-0" />
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-bold text-slate-650 uppercase tracking-widest block">
-                  {lang === "EN" ? "Active SSO Tunneling" : "Túnel SSO Activo"}
-                </span>
-                <p className="text-[10px] text-slate-500 leading-relaxed">
-                  {lang === "EN" 
-                    ? "Single Sign-On is fully synchronized. Enrolled students of affiliated partnerships (Spanish Embassy and partner schools) can authenticate instantly."
-                    : "El inicio de sesión único (SSO) está completamente sincronizado. Estudiantes de instituciones asociadas (Embajada de España y escuelas asociadas) ingresan instantáneamente."}
-                </p>
-              </div>
-            </div>
-
-            {/* Switch sign in / register */}
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={() => { setError(""); setIsRegister(!isRegister); }}
-                className="text-xs text-teal-700 hover:text-teal-600 font-semibold cursor-pointer underline underline-offset-4"
-              >
-                {isRegister ? t.gateHaveAccountQ : t.gateNewStudentQ}
-              </button>
-            </div>
-          </div>
-        )}
       </motion.div>
 
-      {/* DYNAMIC INTERACTIVE GOOGLE AUTH / SSO WINDOW POPUP OVERLAY */}
-      {enableDemoAuth && showGoogleSSOPopup && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="w-full max-w-sm bg-white rounded-3xl border border-slate-150 shadow-2xl overflow-hidden text-slate-800"
-          >
-            {/* Window header */}
-            <div className="bg-slate-50 border-b border-slate-150 px-5 py-4 flex justify-between items-center">
-              <div className="flex items-center space-x-2">
-                <div className="w-5 h-5 bg-white border border-slate-250 rounded flex items-center justify-center text-[#4285F4]">
-                  <Chrome size={12} />
-                </div>
-                <span className="text-xs font-mono font-bold text-slate-500">accounts.google.com</span>
-              </div>
-              <button 
-                onClick={() => setShowGoogleSSOPopup(false)}
-                className="text-slate-400 hover:text-slate-700 transition"
-              >
-                {lang === "EN" ? "Cancel" : "Cancelar"}
-              </button>
-            </div>
-
-            {/* Window Body logo */}
-            <div className="p-6 space-y-5 text-center">
-              <div className="space-y-1">
-                {/* Visual G Logo */}
-                <div className="w-12 h-12 rounded-full border border-slate-100 shadow-sm bg-white flex items-center justify-center mx-auto text-xl font-bold">
-                  <span className="text-[#4285F4]">G</span>
-                  <span className="text-[#EA4335]">o</span>
-                  <span className="text-[#FBBC05]">o</span>
-                  <span className="text-[#4285F4]">g</span>
-                  <span className="text-[#34A853]">l</span>
-                  <span className="text-[#EA4335]">e</span>
-                </div>
-                <h3 className="font-sans font-bold text-slate-900 text-sm mt-3">
-                  {lang === "EN" ? "Sign in with Google" : "Iniciar sesión con Google"}
-                </h3>
-                <p className="text-[10px] text-slate-500">
-                  {lang === "EN" ? "to continue to" : "para continuar en"}{" "}
-                  <span className="font-bold text-teal-700">Iniciativa Ser o Estar Student Hub</span>
-                </p>
-              </div>
-
-              {/* Accounts Selection */}
-              <div className="space-y-2 text-left">
-                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest block px-1">
-                  {lang === "EN" ? "choose an account" : "seleccione una cuenta"}
-                </span>
-                
-                {/* User email option */}
-                <button
-                  type="button"
-                  onClick={() => handleCompleteGoogleSSO("abdulkehmorkaikamara@gmail.com", "Abdul K. Kamara")}
-                  className="w-full p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between text-left transition text-slate-700"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-orange-400 to-amber-500 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow">
-                      AK
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-extrabold text-slate-800 leading-none">Abdul K. Kamara</p>
-                      <p className="text-[10px] text-slate-500 font-mono">abdulkehmorkaikamara@gmail.com</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-400" />
-                </button>
-
-                {/* Demo student account option */}
-                <button
-                  type="button"
-                  onClick={() => handleCompleteGoogleSSO("guest.student@gmail.com", "Patricia Turay")}
-                  className="w-full p-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-between text-left transition text-slate-700"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-9 h-9 rounded-full bg-teal-600 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow">
-                      PT
-                    </div>
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-extrabold text-slate-800 leading-none">Patricia Turay</p>
-                      <p className="text-[10px] text-slate-500 font-mono">guest.student@gmail.com</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-400" />
-                </button>
-              </div>
-
-              {/* Security warning */}
-              <p className="text-[9px] text-slate-400 leading-snug">
-                {lang === "EN" 
-                  ? "Google will share your name, email address, language preference, and profile picture with Iniciativa Ser o Estar. Before using this app, you can review its privacy policy and terms of service."
-                  : "Google compartirá su nombre, dirección de correo electrónico, preferencia de idioma y foto de perfil con Iniciativa Ser o Estar. Antes de utilizar esta aplicación, puede revisar su política de privacidad y condiciones de servicio."}
-              </p>
-            </div>
-          </motion.div>
-        </div>
-      )}
     </div>
   );
 }
