@@ -29,12 +29,10 @@ import { CLASS_GROUPS, ClassGroup, classGroupLabel, classGroupValue, contentAudi
 interface TeacherDashboardProps {
   onExit: () => void;
   teacherProfile?: any;
-  onAddSharedNote: (note: any) => void;
-  onAddRecording: (recording: any) => void;
   lang?: "EN" | "ES";
 }
 
-export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNote, onAddRecording, lang = "EN" }: TeacherDashboardProps) {
+export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }: TeacherDashboardProps) {
   const d = (en: string, es: string) => (lang === "ES" ? es : en);
   const tutor = findTutorByEmail(teacherProfile?.email);
   const teacherName = teacherProfile?.fullName || tutor.name;
@@ -396,7 +394,6 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
         throw new Error(payload?.detail || d("The file could not be uploaded.", "No se pudo subir el archivo."));
       }
 
-      onAddSharedNote(payload);
       setPublishedRefreshKey((key) => key + 1);
       setNoteUploadStatus({
         type: "success",
@@ -431,19 +428,6 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       })
     });
     if (!response.ok) return;
-    const created = await response.json();
-    const newRec = {
-      id: created.id,
-      title: recTitle,
-      teacher: teacherName,
-      level: recGroup.level,
-      date: new Date().toISOString().split("T")[0],
-      duration: "50 mins",
-      description: recDescription || "Class discussion capture",
-      url: recVideoUrl
-    };
-
-    onAddRecording(newRec); // propagate up
     setPublishedRefreshKey((key) => key + 1);
     alert(d("Práctico! Recording successfully published inside the Student Recorded Class Archive.", "¡Práctico! Grabación publicada con éxito en el Archivo de Clases Grabadas del estudiante."));
     setRecTitle("");
