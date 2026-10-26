@@ -33,8 +33,7 @@ import {
   BookMarked,
   GraduationCap,
   Building2,
-  Handshake,
-  Trash2
+  Handshake
 } from "lucide-react";
 
 import { Course, Testimonial, BlogPost } from "./types";
@@ -730,8 +729,9 @@ export default function App() {
     setPublishedBlogPosts((posts) => [blogPostFromServer(post), ...posts]);
   };
 
-  // Admin only: articles the admin wrote are deleted; built-in ones are hidden
-  // from the website and can be brought back from the Admin Dashboard.
+  // Used from the Admin Dashboard only (not on the public blog, to avoid
+  // accidental deletes): articles the admin wrote are deleted; built-in ones
+  // are hidden from the website and can be brought back.
   const handleDeleteBlogPost = async (post: BlogPost) => {
     const es = courseLang === "ES";
     if (!window.confirm(es ? `¿Eliminar "${post.title}" de la web?` : `Delete "${post.title}" from the website?`)) return;
@@ -1768,12 +1768,6 @@ export default function App() {
               </p>
             </div>
 
-            {blogActionError && (
-              <p role="alert" className="max-w-xl mx-auto text-center text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
-                {blogActionError}
-              </p>
-            )}
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {customBlogPosts.map((sourcePost) => {
                 const post = getLocalizedBlogPost(sourcePost, courseLang);
@@ -1796,16 +1790,6 @@ export default function App() {
                           {post.category}
                         </span>
                       </div>
-                      {adminSession && (
-                        <button
-                          onClick={() => handleDeleteBlogPost(sourcePost)}
-                          className="absolute top-3 right-3 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/95 hover:bg-rose-600 text-rose-600 hover:text-white text-[11px] font-bold shadow-sm transition cursor-pointer"
-                          title={courseLang === "EN" ? "Delete this article (only admins see this button)" : "Eliminar este artículo (solo los administradores ven este botón)"}
-                        >
-                          <Trash2 size={13} />
-                          <span>{courseLang === "EN" ? "Delete" : "Eliminar"}</span>
-                        </button>
-                      )}
                     </div>
 
                     {/* Blog Info */}
