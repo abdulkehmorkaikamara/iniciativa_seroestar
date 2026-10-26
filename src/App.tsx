@@ -602,6 +602,12 @@ export default function App() {
   // Background Slideshow Auto-Rotation Timer
   useEffect(() => {
     if (currentPortal !== null) return;
+    // Each slide is a new photo download, so stay on the first one for visitors
+    // on data saver or a 2G connection, and for those who prefer less motion.
+    const connection = (navigator as any).connection;
+    const slowOrSaving = Boolean(connection?.saveData) || /(^|-)2g$/.test(connection?.effectiveType || "");
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (slowOrSaving || reducedMotion) return;
     const interval = setInterval(() => {
       setCurrentHeroSlide((prev) => (prev + 1) % heroSlides.length);
     }, 6000); // 6 seconds for delightful and readable experience
@@ -900,9 +906,11 @@ export default function App() {
             <header id="home" className="relative m-3 sm:m-6 lg:m-8 rounded-3xl overflow-hidden min-h-[560px] md:min-h-[78vh] flex items-end md:items-center bg-slate-900 shadow-xl">
               {/* Backlit generated slideshow images wrap */}
               <div className="absolute inset-0 z-0 overflow-hidden">
-                <AnimatePresence mode="popLayout">
+                {/* initial={false}: the first photo appears at once instead of fading in. */}
+                <AnimatePresence mode="popLayout" initial={false}>
                   <motion.img
                     key={currentHeroSlide}
+                    fetchPriority={currentHeroSlide === 0 ? "high" : "auto"}
                     src={imageOverrides["Hero Banner"] && currentHeroSlide === 0 ? imageOverrides["Hero Banner"] : heroSlides[currentHeroSlide].image}
                     alt={heroSlides[currentHeroSlide].title}
                     initial={{ opacity: 0, scale: 1.08, filter: "blur(4px)" }}
@@ -1180,6 +1188,8 @@ export default function App() {
             <div className="bg-white rounded-3xl overflow-hidden shadow-md border border-slate-200/60 grid grid-cols-1 md:grid-cols-12 gap-0">
               <div className="md:col-span-7 relative aspect-[3/2] md:aspect-auto md:min-h-[430px] overflow-hidden bg-orange-50">
                 <img
+                  loading="lazy"
+                  decoding="async"
                   src="/images/vibrant_community_warm_studio.webp"
                   alt={courseLang === "EN" ? "Iniciativa Ser o Estar students and instructors celebrating graduation" : "Estudiantes e instructores de Iniciativa Ser o Estar celebrando la graduación"}
                   referrerPolicy="no-referrer"
