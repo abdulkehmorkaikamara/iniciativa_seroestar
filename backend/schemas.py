@@ -124,6 +124,7 @@ class AnnouncementCreate(BaseModel):
     course_level: str
     class_group: Optional[str] = None
     alert_type: str = "info"
+    notify_students: bool = True  # also email the students it is for
 
 class AnnouncementResponse(BaseModel):
     id: int
@@ -134,6 +135,7 @@ class AnnouncementResponse(BaseModel):
     alert_type: str
     created_by: str
     created_at: Optional[datetime] = None
+    emailed: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -180,6 +182,7 @@ class HomeworkCreate(BaseModel):
     class_group: str = Field(min_length=1, max_length=50)
     due_date: Optional[str] = Field(default=None, max_length=20)
     max_score: float = Field(default=100, gt=0, le=1000)
+    notify_students: bool = True  # also email the group's students
 
 class ReviewCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
