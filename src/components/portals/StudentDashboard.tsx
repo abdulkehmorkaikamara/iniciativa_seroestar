@@ -1361,13 +1361,13 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                           <FileDown size={14} />
                         </a>
                       ) : (
-                        <button
-                          onClick={() => alert(d("This example material has no uploaded file yet.", "Este material de ejemplo aún no tiene un archivo cargado."))}
-                          className="p-2.5 bg-white border border-slate-200 text-slate-400 rounded-xl flex shrink-0"
-                          title={d("Example material", "Material de ejemplo")}
+                        <span
+                          className="p-2.5 bg-white border border-slate-200 text-slate-300 rounded-xl flex shrink-0 cursor-not-allowed"
+                          title={d("No file attached to this material yet", "Este material aún no tiene archivo")}
+                          aria-label={d("No file attached to this material yet", "Este material aún no tiene archivo")}
                         >
                           <FileDown size={14} />
-                        </button>
+                        </span>
                       )}
                     </div>
                     );

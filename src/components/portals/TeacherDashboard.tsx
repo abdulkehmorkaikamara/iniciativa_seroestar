@@ -152,7 +152,14 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
   const [annText, setAnnText] = useState("");
   const [annGroupCode, setAnnGroupCode] = useState(tutorGroups[0].code);
   const [annType, setAnnType] = useState("info");
-  const [annSuccessMessage, setAnnSuccessMessage] = useState(false);
+  const [annSuccessMessage, setAnnSuccessMessage] = useState<string | false>(false);
+  const [annNotify, setAnnNotify] = useState(true);
+  // How a post's "emailed" count reads in the success message.
+  const emailedNote = (emailed: unknown) => typeof emailed !== "number"
+    ? ""
+    : emailed > 0
+      ? d(` Emailed to ${emailed} student${emailed === 1 ? "" : "s"}.`, ` Enviado por correo a ${emailed} estudiante${emailed === 1 ? "" : "s"}.`)
+      : d(" No students were emailed (none in this group have an email, or email isn't set up).", " No se envió ningún correo (nadie en este grupo tiene correo, o el correo no está configurado).");
 
   const [annError, setAnnError] = useState<string | null>(null);
 
@@ -169,23 +176,24 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
         text: annText,
         course_level: group.level,
         class_group: classGroupValue(group),
-        alert_type: annType
+        alert_type: annType,
+        notify_students: annNotify
       })
     }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
     if (!response?.ok) {
-      const payload = await response?.json().catch(() => null);
       setAnnError(payload?.detail || d("The announcement could not be published.", "No se pudo publicar el anuncio."));
       return;
     }
 
     setPublishedRefreshKey((key) => key + 1);
-    setAnnSuccessMessage(true);
+    setAnnSuccessMessage(d(`Published to ${classGroupLabel(group)} students.`, `Publicado para los estudiantes de ${classGroupLabel(group)}.`) + emailedNote(payload?.emailed));
     setAnnTitle("");
     setAnnText("");
 
     setTimeout(() => {
       setAnnSuccessMessage(false);
-    }, 4500);
+    }, 7000);
   };
 
   // Create a class record; shared by scheduling and "Start class now".
@@ -410,10 +418,13 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
   };
 
   // Upload Recording
+  const [recStatus, setRecStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   const handleAddRecordingRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!recTitle || !recVideoUrl) return;
     const recGroup = groupByCode(recGroupCode);
+    setRecStatus(null);
 
     const response = await fetch("/api/recordings/webhook", {
       method: "POST",
@@ -427,10 +438,14 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
         duration: "50 mins",
         description: recDescription || "Class discussion capture"
       })
-    });
-    if (!response.ok) return;
+    }).catch(() => null);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setRecStatus({ type: "error", text: (typeof payload?.detail === "string" && payload.detail) || d("The recording could not be published. Check the link and try again.", "No se pudo publicar la grabación. Revisa el enlace e inténtalo de nuevo.") });
+      return;
+    }
     setPublishedRefreshKey((key) => key + 1);
-    alert(d("Práctico! Recording successfully published inside the Student Recorded Class Archive.", "¡Práctico! Grabación publicada con éxito en el Archivo de Clases Grabadas del estudiante."));
+    setRecStatus({ type: "success", text: d(`Published. ${classGroupLabel(recGroup)} students can now watch it in their Recorded Classes.`, `Publicada. Los estudiantes de ${classGroupLabel(recGroup)} ya pueden verla en sus Clases Grabadas.`) });
     setRecTitle("");
     setRecDescription("");
     setRecVideoUrl("");
@@ -632,6 +647,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
   const [hwMax, setHwMax] = useState("10");
   const [hwError, setHwError] = useState<string | null>(null);
   const [hwSaving, setHwSaving] = useState(false);
+  const [hwNotify, setHwNotify] = useState(true);
+  const [hwNotice, setHwNotice] = useState<string | null>(null);
   const [openHomeworkId, setOpenHomeworkId] = useState<number | null>(null);
   const [hwGradeDrafts, setHwGradeDrafts] = useState<Record<string, { score: string; remarks: string }>>({});
   const [hwGradeSaved, setHwGradeSaved] = useState<string | null>(null);
@@ -651,6 +668,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
     const group = groupByCode(hwGroupCode);
     setHwSaving(true);
     setHwError(null);
+    setHwNotice(null);
     const response = await fetch("/api/homework", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -660,7 +678,8 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
         course_level: group.level,
         class_group: classGroupValue(group),
         due_date: hwDue || null,
-        max_score: Number(hwMax) || 10
+        max_score: Number(hwMax) || 10,
+        notify_students: hwNotify
       })
     }).catch(() => null);
     const payload = await response?.json().catch(() => null);
@@ -669,6 +688,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
       setHwError((typeof payload?.detail === "string" && payload.detail) || d("The homework could not be set.", "No se pudo publicar la tarea."));
       return;
     }
+    setHwNotice(d(`Homework set for ${classGroupLabel(group)}.`, `Tarea publicada para ${classGroupLabel(group)}.`) + emailedNote(payload?.emailed));
     setHwTitle("");
     setHwInstructions("");
     setHwDue("");
@@ -1508,10 +1528,17 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
             onChange={(e) => setHwInstructions(e.target.value)}
             className="col-span-2 sm:col-span-6 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
           />
+          <label className="col-span-2 sm:col-span-6 flex items-center gap-2 text-[11px] font-semibold text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={hwNotify} onChange={(e) => setHwNotify(e.target.checked)} />
+            {d("Also email the homework to the group's students", "Enviar también la tarea por correo a los estudiantes del grupo")}
+          </label>
         </form>
 
         {hwError && (
           <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{hwError}</p>
+        )}
+        {hwNotice && (
+          <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">{hwNotice}</p>
         )}
 
         {hwData.homework.length === 0 ? (
@@ -1897,6 +1924,11 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
               />
             </div>
           </form>
+          {recStatus && (
+            <p role={recStatus.type === "error" ? "alert" : "status"} className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${recStatus.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+              {recStatus.text}
+            </p>
+          )}
         </div>
 
         {/* BROADCAST COHORT ANNOUNCEMENT */}
@@ -1911,7 +1943,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
 
             {annSuccessMessage && (
               <div className="p-3 bg-emerald-50 border border-emerald-250 text-emerald-800 rounded-2xl text-[10px] text-left leading-normal font-sans font-medium animate-fade-in">
-                {d(`Published to ${classGroupLabel(groupByCode(annGroupCode))} students.`, `Publicado para los estudiantes de ${classGroupLabel(groupByCode(annGroupCode))}.`)}
+                {annSuccessMessage}
               </div>
             )}
             {annError && (
@@ -1962,6 +1994,11 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.8 text-xs focus:outline-hidden focus:border-teal-600 font-sans"
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={annNotify} onChange={(e) => setAnnNotify(e.target.checked)} />
+                {d("Also email it to the students", "Enviarlo también por correo a los estudiantes")}
+              </label>
 
               <button
                 type="submit"

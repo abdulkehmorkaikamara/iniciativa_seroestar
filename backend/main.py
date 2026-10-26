@@ -135,8 +135,9 @@ def _email_configured() -> bool:
     return bool(os.getenv("SMTP_HOST", "").strip() and user and os.getenv("SMTP_PASS", "") and (os.getenv("SMTP_FROM_EMAIL", "").strip() or user))
 
 
-def _send_email(recipient: str, subject: str, text_body: str, html_body: str) -> bool:
-    """Send one email through the SMTP_* settings. False when email isn't set up."""
+def _send_email(recipient: str, subject: str, text_body: str, html_body: str, bcc: list[str] | None = None) -> bool:
+    """Send one email through the SMTP_* settings. False when email isn't set up.
+    Addresses in `bcc` also receive it without seeing each other."""
     smtp_host = os.getenv("SMTP_HOST", "").strip()
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "").strip()
@@ -156,15 +157,53 @@ def _send_email(recipient: str, subject: str, text_body: str, html_body: str) ->
     if smtp_port == 465:
         with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12, context=ssl.create_default_context()) as smtp:
             smtp.login(smtp_user, smtp_password)
-            smtp.send_message(message)
+            smtp.send_message(message, to_addrs=[recipient, *(bcc or [])])
     else:
         with smtplib.SMTP(smtp_host, smtp_port, timeout=12) as smtp:
             smtp.ehlo()
             smtp.starttls(context=ssl.create_default_context())
             smtp.ehlo()
             smtp.login(smtp_user, smtp_password)
-            smtp.send_message(message)
+            smtp.send_message(message, to_addrs=[recipient, *(bcc or [])])
     return True
+
+
+def _notify_students(students: list, subject: str, intro: str, body: str, site_url: str) -> int:
+    """Email a group of students (hidden from each other) about something new in
+    their portal. Returns how many were emailed; 0 when email isn't set up."""
+    addresses = sorted({s.user.email.strip().lower() for s in students if s.user and s.user.is_active and s.user.email})
+    if not addresses or not _email_configured():
+        return 0
+    academy = os.getenv("SMTP_FROM_EMAIL", "").strip() or os.getenv("SMTP_USER", "").strip()
+    text_body = f"{intro}\n\n{body}\n\nOpen your student portal: {site_url}\n\nIniciativa Ser o Estar"
+    html_body = f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
+          <p>{html.escape(intro)}</p>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px 16px;white-space:pre-line">{html.escape(body)}</div>
+          <p><a href="{html.escape(site_url, quote=True)}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Open your student portal</a></p>
+          <p style="color:#64748b;font-size:13px">Iniciativa Ser o Estar · WhatsApp +232 72 057646</p>
+        </div>
+        """
+    emailed = 0
+    for start in range(0, len(addresses), 50):
+        chunk = addresses[start:start + 50]
+        try:
+            if _send_email(academy, subject, text_body, html_body, bcc=chunk):
+                emailed += len(chunk)
+        except Exception as exc:
+            print(f"Student notification email failed: {type(exc).__name__}")
+    return emailed
+
+
+def _level_recipients(level: str, class_group: str | None, db: Session) -> list:
+    """Active students an announcement or homework is for: one school's group,
+    or every group of the level when no group is given."""
+    if class_group:
+        return _students_in_group(level, class_group, db)
+    return [
+        student for student in db.query(models.StudentProfile).filter(models.StudentProfile.status != "Inactive").all()
+        if _course_level_code(student.course_level) == level
+    ]
 
 
 def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
@@ -1869,7 +1908,16 @@ def create_announcement(payload: schemas.AnnouncementCreate, request: Request, d
     db.add(announcement)
     db.commit()
     db.refresh(announcement)
-    return announcement
+    response = schemas.AnnouncementResponse.model_validate(announcement)
+    if payload.notify_students:
+        response.emailed = _notify_students(
+            _level_recipients(level, announcement.class_group, db),
+            f"New announcement: {announcement.title}",
+            f"{announcement.created_by} posted a new announcement for your class:",
+            f"{announcement.title}\n\n{announcement.text[:3000]}",
+            _password_reset_app_url(request),
+        )
+    return response
 
 
 @app.delete("/api/announcements/{announcement_id}")
@@ -2538,7 +2586,17 @@ def create_homework(payload: schemas.HomeworkCreate, request: Request, db: Sessi
     db.add(homework)
     db.commit()
     db.refresh(homework)
-    return _homework_response(homework)
+    response = _homework_response(homework)
+    if payload.notify_students:
+        due = f"Due: {datetime.strptime(due_date, '%Y-%m-%d').strftime('%d %B %Y')}\n" if due_date else ""
+        response["emailed"] = _notify_students(
+            _students_in_group(level, class_group, db),
+            f"New homework: {homework.title}",
+            f"{created_by} set new homework for your class. Hand it in from the Grades & Homework tab of your portal.",
+            f"{homework.title}\n{due}\n{(homework.instructions or '')[:3000]}".strip(),
+            _password_reset_app_url(request),
+        )
+    return response
 
 
 @app.get("/api/tutor/homework")
