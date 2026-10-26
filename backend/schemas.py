@@ -24,6 +24,13 @@ class LoginRequest(BaseModel):
 class PasswordForgotRequest(BaseModel):
     email: EmailStr
 
+class AdminStudentUpdate(BaseModel):
+    full_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    phone_number: Optional[str] = Field(default=None, max_length=40)
+    course_level: Optional[str] = Field(default=None, pattern="^(A1|A2|B1)$")
+    class_group: Optional[str] = Field(default=None, min_length=1, max_length=80)
+    active: Optional[bool] = None
+
 class PasswordChange(BaseModel):
     current_password: str = Field(min_length=1, max_length=72)
     new_password: str = Field(min_length=8, max_length=72)
