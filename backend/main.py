@@ -1094,8 +1094,9 @@ def admin_reset_password(payload: schemas.AdminPasswordReset, request: Request, 
 
 @app.get("/api/admin/teachers")
 def list_admin_teachers(request: Request, db: Session = Depends(get_db)):
+    """Tutors with a real portal account (not the built-in profile templates)."""
     _require_admin(request)
-    return _all_tutor_dicts(db)
+    return [tutor for tutor in _all_tutor_dicts(db) if tutor.get("source") != "template"]
 
 
 @app.post("/api/admin/teachers")

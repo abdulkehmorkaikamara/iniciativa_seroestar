@@ -42,3 +42,11 @@ class AdminPasswordResetTests(_LiveSessionTestCase):
         self.assertEqual(self._reset(DEVELOPER[0]).status_code, 404)
         self.assertEqual(self._reset("nobody@example.com").status_code, 404)
         self.assertEqual(self._reset(TUTOR[0]).status_code, 200)
+
+
+class AdminTeacherListTests(_LiveSessionTestCase):
+    def test_lists_only_tutors_with_a_portal_account(self):
+        tutors = self.client.get("/api/admin/teachers", headers=self._headers(DEVELOPER)).json()
+        self.assertIn(TUTOR[0], [t["email"] for t in tutors])
+        self.assertNotIn("template", {t.get("source") for t in tutors})
+        self.assertNotIn("xiomara@seroestar.com", [t["email"] for t in tutors])
