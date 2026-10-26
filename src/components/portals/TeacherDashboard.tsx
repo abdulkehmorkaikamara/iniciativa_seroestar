@@ -16,7 +16,9 @@ import {
   Search,
   MessageSquare,
   Upload,
-  Award
+  Award,
+  BookOpen,
+  ExternalLink
 } from "lucide-react";
 import LiveVideoRoom from "../LiveVideoRoom";
 import MessagesPanel from "./MessagesPanel";
@@ -497,6 +499,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
   // Gradebook for one school: the tutor's assessments x students, scores typed in by hand.
   type Gradebook = { students: any[]; assessments: any[]; scores: Record<string, Record<string, { score: number; remarks?: string | null }>> };
   const [gradeGroupCode, setGradeGroupCode] = useState(tutorGroups[0].code);
+  const [gradebookRefresh, setGradebookRefresh] = useState(0);
   const [gradebook, setGradebook] = useState<Gradebook>({ students: [], assessments: [], scores: {} });
   const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({});
   const [gradeError, setGradeError] = useState<string | null>(null);
@@ -517,7 +520,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       .then((res) => res.ok ? res.json() : Promise.reject())
       .then((data) => setGradebook(data))
       .catch(() => setGradeError(d("The gradebook could not be loaded.", "No se pudo cargar la libreta de calificaciones.")));
-  }, [gradeGroupCode]);
+  }, [gradeGroupCode, gradebookRefresh]);
 
   const handleAddAssessment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -630,6 +633,114 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
       return { ...book, scores: { ...book.scores, [String(assessment.id)]: assessmentScores } };
     });
     setCommentTarget(null);
+  };
+
+  // Homework for one school: set it, see who handed in, open files and grade them.
+  type HomeworkSubmissionRow = { student_id_code: string; full_name: string; file_url: string; file_name: string; file_size?: string; note?: string | null; submitted_at: string; late: boolean; score: number | null; remarks?: string | null };
+  type HomeworkItem = { id: number; title: string; instructions?: string | null; due_date?: string | null; assessment_id: number | null; max_score: number | null; submissions: HomeworkSubmissionRow[] };
+  const [hwGroupCode, setHwGroupCode] = useState(tutorGroups[0].code);
+  const [hwData, setHwData] = useState<{ students: any[]; homework: HomeworkItem[] }>({ students: [], homework: [] });
+  const [hwRefresh, setHwRefresh] = useState(0);
+  const [hwTitle, setHwTitle] = useState("");
+  const [hwInstructions, setHwInstructions] = useState("");
+  const [hwDue, setHwDue] = useState("");
+  const [hwMax, setHwMax] = useState("10");
+  const [hwError, setHwError] = useState<string | null>(null);
+  const [hwSaving, setHwSaving] = useState(false);
+  const [openHomeworkId, setOpenHomeworkId] = useState<number | null>(null);
+  const [hwGradeDrafts, setHwGradeDrafts] = useState<Record<string, { score: string; remarks: string }>>({});
+  const [hwGradeSaved, setHwGradeSaved] = useState<string | null>(null);
+
+  useEffect(() => {
+    const group = groupByCode(hwGroupCode);
+    setHwError(null);
+    fetch(`/api/tutor/homework?course_level=${group.level}&class_group=${encodeURIComponent(classGroupValue(group))}`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setHwData(data))
+      .catch(() => setHwError(d("Homework could not be loaded.", "No se pudieron cargar las tareas.")));
+  }, [hwGroupCode, hwRefresh]);
+
+  const handleCreateHomework = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!hwTitle.trim()) return;
+    const group = groupByCode(hwGroupCode);
+    setHwSaving(true);
+    setHwError(null);
+    const response = await fetch("/api/homework", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: hwTitle.trim(),
+        instructions: hwInstructions.trim() || null,
+        course_level: group.level,
+        class_group: classGroupValue(group),
+        due_date: hwDue || null,
+        max_score: Number(hwMax) || 10
+      })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setHwSaving(false);
+    if (!response?.ok) {
+      setHwError((typeof payload?.detail === "string" && payload.detail) || d("The homework could not be set.", "No se pudo publicar la tarea."));
+      return;
+    }
+    setHwTitle("");
+    setHwInstructions("");
+    setHwDue("");
+    setOpenHomeworkId(payload.id);
+    setHwRefresh((n) => n + 1);
+    setGradebookRefresh((n) => n + 1);
+  };
+
+  const handleDeleteHomework = async (homework: HomeworkItem) => {
+    if (!window.confirm(d(
+      `Delete "${homework.title}"? Students' files and scores for it will be removed too.`,
+      `¿Eliminar "${homework.title}"? También se borrarán los archivos y las calificaciones de los estudiantes.`
+    ))) return;
+    const response = await fetch(`/api/homework/${homework.id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      setHwError(d("The homework could not be deleted.", "No se pudo eliminar la tarea."));
+      return;
+    }
+    setHwRefresh((n) => n + 1);
+    setGradebookRefresh((n) => n + 1);
+  };
+
+  const handleGradeSubmission = async (homework: HomeworkItem, sub: HomeworkSubmissionRow) => {
+    if (!homework.assessment_id) return;
+    const key = `${homework.id}:${sub.student_id_code}`;
+    const draft = hwGradeDrafts[key] ?? { score: sub.score === null ? "" : String(sub.score), remarks: sub.remarks || "" };
+    const text = draft.score.trim();
+    const score = text === "" ? null : Number(text);
+    if (score !== null && (Number.isNaN(score) || score < 0 || score > (homework.max_score ?? 0))) {
+      setHwError(d(`The score must be between 0 and ${homework.max_score}.`, `La calificación debe estar entre 0 y ${homework.max_score}.`));
+      return;
+    }
+    setHwError(null);
+    const response = await fetch(`/api/assessments/${homework.assessment_id}/scores`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ student_id_code: sub.student_id_code, score, remarks: draft.remarks })
+    }).catch(() => null);
+    if (!response?.ok) {
+      const payload = await response?.json().catch(() => null);
+      setHwError((typeof payload?.detail === "string" && payload.detail) || d("That grade could not be saved.", "No se pudo guardar esa calificación."));
+      return;
+    }
+    setHwGradeDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[key];
+      return next;
+    });
+    setHwGradeSaved(key);
+    setTimeout(() => setHwGradeSaved((current) => (current === key ? null : current)), 2500);
+    setHwRefresh((n) => n + 1);
+    setGradebookRefresh((n) => n + 1);
+  };
+
+  const formatSubmittedAt = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString([], { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   };
 
   const studentAverage = (studentCode: string) => {
@@ -1347,6 +1458,209 @@ export default function TeacherDashboard({ onExit, teacherProfile, onAddSharedNo
             )}
           </form>
         </div>
+      </div>
+
+      {/* Homework: set it per school, open students' files and grade them */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4 min-w-0 text-left">
+        <div className="flex justify-between items-center border-b border-slate-100 pb-3 flex-wrap gap-2">
+          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center">
+            <BookOpen size={15} className="text-teal-600 mr-2" />
+            {d("Homework", "Tareas")}
+          </h3>
+          {schoolSelect(hwGroupCode, (code) => { setHwGroupCode(code); setOpenHomeworkId(null); }, "bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-600 focus:outline-hidden")}
+        </div>
+
+        <form onSubmit={handleCreateHomework} className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-start">
+          <input
+            type="text"
+            required
+            maxLength={255}
+            placeholder={d("Homework title, e.g. Describe your family", "Título de la tarea, p. ej. Describe a tu familia")}
+            value={hwTitle}
+            onChange={(e) => setHwTitle(e.target.value)}
+            className="col-span-2 sm:col-span-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
+          />
+          <input
+            type="date"
+            aria-label={d("Due date", "Fecha de entrega")}
+            title={d("Due date", "Fecha de entrega")}
+            value={hwDue}
+            onChange={(e) => setHwDue(e.target.value)}
+            className="bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500 focus:outline-hidden"
+          />
+          <label className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-xs text-slate-500">
+            <span className="whitespace-nowrap">{d("Out of", "Sobre")}</span>
+            <input
+              type="number"
+              min="1"
+              max="1000"
+              step="any"
+              required
+              value={hwMax}
+              onChange={(e) => setHwMax(e.target.value)}
+              className="w-full bg-transparent font-bold text-slate-700 focus:outline-hidden"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={hwSaving}
+            className="col-span-2 sm:col-span-1 inline-flex justify-center items-center py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-60 text-white rounded-xl font-bold text-xs transition cursor-pointer"
+          >
+            <Plus size={13} className="mr-1" />
+            {hwSaving ? d("Setting...", "Publicando...") : d("Set homework", "Publicar tarea")}
+          </button>
+          <textarea
+            rows={2}
+            maxLength={5000}
+            placeholder={d("Instructions for students (optional)", "Instrucciones para los estudiantes (opcional)")}
+            value={hwInstructions}
+            onChange={(e) => setHwInstructions(e.target.value)}
+            className="col-span-2 sm:col-span-6 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs focus:outline-hidden"
+          />
+        </form>
+
+        {hwError && (
+          <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{hwError}</p>
+        )}
+
+        {hwData.homework.length === 0 ? (
+          <p className="text-[11px] text-slate-400 font-semibold">
+            {d("No homework for this school yet. Students see homework in their portal as soon as you set it, and it gets its own column in the gradebook.", "Aún no hay tareas para esta escuela. Los estudiantes ven la tarea en su portal en cuanto la publicas, y tiene su propia columna en la libreta de calificaciones.")}
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {hwData.homework.map((homework) => {
+              const isOpen = openHomeworkId === homework.id;
+              const handedIn = new Set(homework.submissions.map((sub) => sub.student_id_code));
+              const missing = hwData.students.filter((student: any) => !handedIn.has(student.student_id_code));
+              const ungraded = homework.submissions.filter((sub) => sub.score === null).length;
+              return (
+                <div key={homework.id} className="rounded-2xl border border-slate-200 overflow-hidden">
+                  <div className="flex items-center justify-between gap-3 p-3 bg-slate-50 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => setOpenHomeworkId(isOpen ? null : homework.id)}
+                      aria-expanded={isOpen}
+                      className="text-left min-w-0 flex-1 cursor-pointer"
+                    >
+                      <span className="block font-extrabold text-xs text-slate-900">{homework.title}</span>
+                      <span className="block text-[10px] font-mono text-slate-500">
+                        {homework.due_date ? d(`Due ${homework.due_date}`, `Entrega ${homework.due_date}`) : d("No due date", "Sin fecha de entrega")}
+                        {homework.max_score !== null ? ` · ${d(`out of ${homework.max_score}`, `sobre ${homework.max_score}`)}` : ""}
+                      </span>
+                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 text-[10px] font-bold">
+                        {d(`${homework.submissions.length} / ${hwData.students.length} handed in`, `${homework.submissions.length} / ${hwData.students.length} entregadas`)}
+                      </span>
+                      {ungraded > 0 && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">
+                          {d(`${ungraded} to grade`, `${ungraded} por calificar`)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setOpenHomeworkId(isOpen ? null : homework.id)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-[11px] font-bold text-slate-600 cursor-pointer"
+                      >
+                        {isOpen ? d("Close", "Cerrar") : d("Open", "Abrir")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteHomework(homework)}
+                        aria-label={d(`Delete ${homework.title}`, `Eliminar ${homework.title}`)}
+                        className="p-1.5 text-slate-300 hover:text-rose-600 cursor-pointer"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="p-3 space-y-3">
+                      {homework.instructions && (
+                        <p className="text-xs text-slate-600 whitespace-pre-line bg-white border border-slate-100 rounded-xl p-3">{homework.instructions}</p>
+                      )}
+                      {homework.submissions.length === 0 && (
+                        <p className="text-[11px] text-slate-400 font-semibold">{d("Nobody has handed this in yet.", "Nadie ha entregado esta tarea todavía.")}</p>
+                      )}
+                      {homework.submissions.map((sub) => {
+                        const key = `${homework.id}:${sub.student_id_code}`;
+                        const draft = hwGradeDrafts[key] ?? { score: sub.score === null ? "" : String(sub.score), remarks: sub.remarks || "" };
+                        const setDraft = (patch: Partial<{ score: string; remarks: string }>) =>
+                          setHwGradeDrafts((drafts) => ({ ...drafts, [key]: { ...draft, ...patch } }));
+                        return (
+                          <div key={sub.student_id_code} className="rounded-xl border border-slate-100 p-3 space-y-2">
+                            <div className="flex items-start justify-between gap-2 flex-wrap">
+                              <div className="min-w-0">
+                                <span className="block font-semibold text-xs text-slate-800">{sub.full_name}</span>
+                                <span className="block text-[10px] font-mono text-slate-400">
+                                  {d(`Handed in ${formatSubmittedAt(sub.submitted_at)}`, `Entregada ${formatSubmittedAt(sub.submitted_at)}`)}
+                                  {sub.late && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold">{d("LATE", "TARDE")}</span>}
+                                </span>
+                              </div>
+                              <a
+                                href={sub.file_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-800 text-[11px] font-bold max-w-full"
+                              >
+                                <ExternalLink size={11} className="shrink-0" />
+                                <span className="truncate">{sub.file_name}</span>
+                                {sub.file_size && <span className="text-teal-600/70 font-mono shrink-0">({sub.file_size})</span>}
+                              </a>
+                            </div>
+                            {sub.note && <p className="text-[11px] text-slate-500 italic">"{sub.note}"</p>}
+                            {homework.assessment_id ? (
+                              <div className="flex flex-wrap items-center gap-2">
+                                <label className="flex items-center gap-1 text-[11px] text-slate-500">
+                                  <input
+                                    type="number"
+                                    inputMode="decimal"
+                                    min="0"
+                                    max={homework.max_score ?? undefined}
+                                    step="any"
+                                    aria-label={d(`Score for ${sub.full_name}`, `Calificación de ${sub.full_name}`)}
+                                    value={draft.score}
+                                    onChange={(e) => setDraft({ score: e.target.value })}
+                                    className="w-16 rounded-lg border border-slate-200 px-1.5 py-1 text-center font-bold text-slate-800 focus:outline-hidden"
+                                  />
+                                  <span>/ {homework.max_score}</span>
+                                </label>
+                                <input
+                                  type="text"
+                                  maxLength={2000}
+                                  placeholder={d("Comment for the student (optional)", "Comentario para el estudiante (opcional)")}
+                                  value={draft.remarks}
+                                  onChange={(e) => setDraft({ remarks: e.target.value })}
+                                  className="flex-1 min-w-[160px] rounded-lg border border-slate-200 px-2 py-1 text-[11px] focus:outline-hidden"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleGradeSubmission(homework, sub)}
+                                  className="px-3 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold cursor-pointer"
+                                >
+                                  {hwGradeSaved === key ? d("Saved ✓", "Guardado ✓") : d("Save grade", "Guardar nota")}
+                                </button>
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-slate-400">{d("This homework's gradebook column was deleted, so it can't be graded here.", "La columna de esta tarea se eliminó de la libreta, así que no se puede calificar aquí.")}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {missing.length > 0 && (
+                        <p className="text-[11px] text-slate-500">
+                          <span className="font-bold">{d("Not handed in:", "Sin entregar:")}</span> {missing.map((student: any) => student.full_name).join(", ")}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Gradebook: one school at a time, scores typed in by the tutor */}

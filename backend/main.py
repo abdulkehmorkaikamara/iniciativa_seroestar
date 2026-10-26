@@ -1907,6 +1907,7 @@ def create_assessment(payload: schemas.AssessmentCreate, request: Request, db: S
 def delete_assessment(assessment_id: int, request: Request, db: Session = Depends(get_db)):
     auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
     assessment = _require_assessment(assessment_id, auth_payload, db)
+    db.query(models.Homework).filter(models.Homework.assessment_id == assessment.id).update({"assessment_id": None})
     db.delete(assessment)
     db.commit()
     return {"detail": "Assessment deleted"}
@@ -1973,6 +1974,228 @@ def get_my_grades(request: Request, db: Session = Depends(get_db)):
         }
         for assessment in assessments
     ]
+
+
+HOMEWORK_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".txt", ".png", ".jpg", ".jpeg", ".heic", ".mp3", ".m4a"}
+
+
+def _display_size(total_size: int) -> str:
+    if total_size >= 1024 * 1024:
+        return f"{total_size / (1024 * 1024):.1f} MB"
+    return f"{max(total_size / 1024, 0.1):.1f} KB"
+
+
+def _submitted_late(homework: models.Homework, submitted_at: datetime | None) -> bool:
+    """Late means handed in after the end of the due date (GMT)."""
+    if not homework.due_date or not submitted_at:
+        return False
+    try:
+        deadline = datetime.strptime(homework.due_date, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=1)
+    except ValueError:
+        return False
+    if submitted_at.tzinfo is None:
+        submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+    return submitted_at >= deadline
+
+
+def _homework_response(homework: models.Homework) -> dict:
+    return {
+        "id": homework.id,
+        "title": homework.title,
+        "instructions": homework.instructions,
+        "course_level": homework.course_level,
+        "class_group": homework.class_group,
+        "due_date": homework.due_date,
+        "assessment_id": homework.assessment_id,
+        "max_score": homework.assessment.max_score if homework.assessment else None,
+        "created_by": homework.created_by,
+    }
+
+
+def _submission_response(homework: models.Homework, submission: models.HomeworkSubmission, score_row: models.AssessmentScore | None) -> dict:
+    student = submission.student
+    return {
+        "student_id_code": student.student_id_code,
+        "full_name": student.user.full_name if student.user else student.student_id_code,
+        "file_url": submission.file_url,
+        "file_name": submission.file_name,
+        "file_size": submission.file_size,
+        "note": submission.note,
+        "submitted_at": submission.submitted_at,
+        "late": _submitted_late(homework, submission.submitted_at),
+        "score": score_row.score if score_row else None,
+        "remarks": score_row.remarks if score_row else None,
+    }
+
+
+def _homework_in_group(homework: models.Homework, level: str, class_group: str | None) -> bool:
+    return _course_level_code(homework.course_level) == level and group_number(homework.class_group) == group_number(class_group)
+
+
+def _owns_homework(payload: dict, homework: models.Homework) -> bool:
+    if payload.get("role") == roles.DEVELOPER:
+        return True
+    return (homework.created_by_email or "") == str(payload.get("sub") or "").lower()
+
+
+def _scores_by_student(assessment_id: int | None, db: Session) -> dict[int, models.AssessmentScore]:
+    if not assessment_id:
+        return {}
+    rows = db.query(models.AssessmentScore).filter(models.AssessmentScore.assessment_id == assessment_id).all()
+    return {row.student_id: row for row in rows}
+
+
+@app.post("/api/homework")
+def create_homework(payload: schemas.HomeworkCreate, request: Request, db: Session = Depends(get_db)):
+    """Set homework for one school and add its column to the gradebook."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(payload.course_level)
+    if level not in {"A1", "A2", "B1"}:
+        raise HTTPException(status_code=400, detail="Invalid course level.")
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Give the homework a title.")
+    due_date = (payload.due_date or "").strip() or None
+    if due_date:
+        try:
+            datetime.strptime(due_date, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Use a YYYY-MM-DD due date.")
+    user = db.query(models.User).filter(models.User.id == auth_payload.get("id")).first()
+    created_by = user.full_name if user and user.full_name else str(auth_payload.get("sub") or "Tutor")
+    created_by_email = str(auth_payload.get("sub") or "").lower() or None
+    class_group = _normalize_class_group(payload.class_group) or "Group 1"
+    assessment = models.Assessment(
+        title=f"Homework: {title}",
+        course_level=level,
+        class_group=class_group,
+        max_score=payload.max_score,
+        assessed_on=due_date,
+        created_by=created_by,
+        created_by_email=created_by_email,
+    )
+    homework = models.Homework(
+        title=title,
+        instructions=(payload.instructions or "").strip() or None,
+        course_level=level,
+        class_group=class_group,
+        due_date=due_date,
+        assessment=assessment,
+        created_by=created_by,
+        created_by_email=created_by_email,
+    )
+    db.add(homework)
+    db.commit()
+    db.refresh(homework)
+    return _homework_response(homework)
+
+
+@app.get("/api/tutor/homework")
+def list_group_homework(course_level: str, class_group: str, request: Request, db: Session = Depends(get_db)):
+    """A tutor's homework for one school, with every student's submission and score."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    level = _course_level_code(course_level)
+    students = _students_in_group(level, class_group, db)
+    homework_list = [
+        homework
+        for homework in db.query(models.Homework).order_by(models.Homework.id.desc()).all()
+        if _homework_in_group(homework, level, class_group) and _owns_homework(auth_payload, homework)
+    ]
+    result = []
+    for homework in homework_list:
+        scores = _scores_by_student(homework.assessment_id, db)
+        submissions = sorted(homework.submissions, key=lambda sub: sub.submitted_at)
+        result.append({
+            **_homework_response(homework),
+            "submissions": [_submission_response(homework, sub, scores.get(sub.student_id)) for sub in submissions],
+        })
+    return {
+        "students": [
+            {"student_id_code": student.student_id_code, "full_name": student.user.full_name if student.user else student.student_id_code}
+            for student in students
+        ],
+        "homework": result,
+    }
+
+
+@app.delete("/api/homework/{homework_id}")
+def delete_homework(homework_id: int, request: Request, db: Session = Depends(get_db)):
+    """Delete homework, its submissions and its gradebook column."""
+    auth_payload = _request_auth_payload(request, set(roles.STAFF_ROLES))
+    homework = db.query(models.Homework).filter(models.Homework.id == homework_id).first()
+    if not homework:
+        raise HTTPException(status_code=404, detail="Homework not found.")
+    if not _owns_homework(auth_payload, homework):
+        raise HTTPException(status_code=403, detail="You can only delete your own homework.")
+    if homework.assessment:
+        db.delete(homework.assessment)
+    db.delete(homework)
+    db.commit()
+    return {"detail": "Homework deleted"}
+
+
+@app.get("/api/homework/me")
+def list_my_homework(request: Request, db: Session = Depends(get_db)):
+    """A student's homework, with what they handed in and their score."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    level = _course_level_code(student.course_level)
+    homework_list = [
+        homework
+        for homework in db.query(models.Homework).order_by(models.Homework.id.desc()).all()
+        if _homework_in_group(homework, level, student.class_group)
+    ]
+    result = []
+    for homework in homework_list:
+        submission = next((sub for sub in homework.submissions if sub.student_id == student.id), None)
+        score_row = _scores_by_student(homework.assessment_id, db).get(student.id)
+        result.append({
+            **_homework_response(homework),
+            "submission": _submission_response(homework, submission, score_row) if submission else None,
+            "score": score_row.score if score_row else None,
+            "remarks": score_row.remarks if score_row else None,
+        })
+    return result
+
+
+@app.post("/api/homework/{homework_id}/submit")
+async def submit_homework(
+    homework_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    note: str | None = Form(None),
+    db: Session = Depends(get_db),
+):
+    """Hand in (or replace) a student's file for their own school's homework."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    homework = db.query(models.Homework).filter(models.Homework.id == homework_id).first()
+    if not homework or not _homework_in_group(homework, _course_level_code(student.course_level), student.class_group):
+        raise HTTPException(status_code=404, detail="Homework not found.")
+    original_name = os.path.basename(file.filename or "homework")
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension not in HOMEWORK_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Upload a PDF, Word, PowerPoint, text, photo (JPG, PNG, HEIC) or audio (MP3, M4A) file.")
+    safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", os.path.splitext(original_name)[0]).strip("_")[:60] or "homework"
+    stored_name = f"hw{homework.id}_{student.student_id_code}_{int(datetime.now(timezone.utc).timestamp())}_{safe_stem}{extension}"
+    file_url, total_size = await store_upload(file, "homework", stored_name, max_size=20 * 1024 * 1024)
+
+    submission = db.query(models.HomeworkSubmission).filter(
+        models.HomeworkSubmission.homework_id == homework.id,
+        models.HomeworkSubmission.student_id == student.id,
+    ).first()
+    if not submission:
+        submission = models.HomeworkSubmission(homework_id=homework.id, student_id=student.id)
+        db.add(submission)
+    submission.file_url = file_url
+    submission.file_name = original_name[:255]
+    submission.file_size = _display_size(total_size)
+    submission.note = (note or "").strip()[:2000] or None
+    submission.submitted_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(submission)
+    score_row = _scores_by_student(homework.assessment_id, db).get(student.id)
+    return _submission_response(homework, submission, score_row)
 
 
 @app.put("/api/attendance/manual")

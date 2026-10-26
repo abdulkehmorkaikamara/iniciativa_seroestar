@@ -272,6 +272,43 @@ class AssessmentScore(Base):
     assessment = relationship("Assessment", back_populates="scores")
     student = relationship("StudentProfile")
 
+class Homework(Base):
+    """Homework a tutor sets for one school's group; graded in the gradebook."""
+
+    __tablename__ = "homework"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    instructions = Column(Text, nullable=True)
+    course_level = Column(String(50), nullable=False) # A1, A2, B1
+    class_group = Column(String(50), nullable=False) # "Group N", the school's group
+    due_date = Column(String(20), nullable=True) # YYYY-MM-DD
+    assessment_id = Column(Integer, ForeignKey("assessments.id", ondelete="SET NULL"), nullable=True) # its gradebook column
+    created_by = Column(String(255), nullable=False) # tutor's display name
+    created_by_email = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    assessment = relationship("Assessment")
+    submissions = relationship("HomeworkSubmission", back_populates="homework", cascade="all, delete-orphan")
+
+class HomeworkSubmission(Base):
+    """A student's handed-in file for a homework; resubmitting replaces it."""
+
+    __tablename__ = "homework_submissions"
+    __table_args__ = (UniqueConstraint("homework_id", "student_id", name="uq_homework_submissions_homework_student"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    homework_id = Column(Integer, ForeignKey("homework.id", ondelete="CASCADE"), nullable=False, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    file_url = Column(String(1024), nullable=False)
+    file_name = Column(String(255), nullable=False)
+    file_size = Column(String(50), nullable=True)
+    note = Column(Text, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=False)
+
+    homework = relationship("Homework", back_populates="submissions")
+    student = relationship("StudentProfile")
+
 class BlogPost(Base):
     __tablename__ = "blog_posts"
 
