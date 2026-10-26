@@ -33,6 +33,8 @@ export interface BlogPost {
   readTime: string;
   category: string;
   contentMarkdown: string;
+  date?: string;
+  serverId?: number; // set for articles the admin published (stored on the server)
 }
 
 export interface Feature {

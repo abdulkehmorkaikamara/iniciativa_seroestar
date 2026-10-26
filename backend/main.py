@@ -2802,12 +2802,18 @@ def post_chat_message(session_id: int, payload: schemas.ChatMessagePost, request
 @app.post("/api/blog", response_model=schemas.BlogPostResponse)
 def create_blog_post(payload: schemas.BlogPostCreate, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
+    title, excerpt, content = payload.title.strip(), payload.excerpt.strip(), payload.content_markdown.strip()
+    if not title or not excerpt or not content:
+        raise HTTPException(status_code=400, detail="Add a title, a summary and the article text.")
+    image_url = (payload.featured_image_url or "").strip() or None
+    if image_url and not (image_url.startswith("https://") or image_url.startswith("/")):
+        raise HTTPException(status_code=400, detail="The image link must start with https://")
     post = models.BlogPost(
-        title=payload.title,
-        category=payload.category,
-        excerpt=payload.excerpt,
-        content_markdown=payload.content_markdown,
-        featured_image_url=payload.featured_image_url or "/src/assets/images/placeholder.jpg",
+        title=title,
+        category=payload.category.strip(),
+        excerpt=excerpt,
+        content_markdown=content,
+        featured_image_url=image_url,
         published=True
     )
     db.add(post)
@@ -2817,7 +2823,18 @@ def create_blog_post(payload: schemas.BlogPostCreate, request: Request, db: Sess
 
 @app.get("/api/blog", response_model=List[schemas.BlogPostResponse])
 def list_blog_posts(db: Session = Depends(get_db)):
-    return db.query(models.BlogPost).all()
+    """Published articles, newest first."""
+    return db.query(models.BlogPost).filter(models.BlogPost.published.is_(True)).order_by(models.BlogPost.id.desc()).all()
+
+@app.delete("/api/blog/{post_id}")
+def delete_blog_post(post_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    post = db.query(models.BlogPost).filter(models.BlogPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Article not found.")
+    db.delete(post)
+    db.commit()
+    return {"detail": "Article deleted"}
 
 
 # --- 5. Interactive Image Uploads ---

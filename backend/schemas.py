@@ -357,11 +357,11 @@ class LessonNoteResponse(LessonNoteCreate):
         from_attributes = True
 
 class BlogPostCreate(BaseModel):
-    title: str
-    category: str
-    excerpt: str
-    content_markdown: str
-    featured_image_url: Optional[str] = None
+    title: str = Field(min_length=1, max_length=255)
+    category: str = Field(min_length=1, max_length=100)
+    excerpt: str = Field(min_length=1, max_length=1000)
+    content_markdown: str = Field(min_length=1, max_length=50000)
+    featured_image_url: Optional[str] = Field(default=None, max_length=255)
 
 class BlogPostResponse(BlogPostCreate):
     id: int

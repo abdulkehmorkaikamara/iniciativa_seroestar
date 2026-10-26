@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Brain,
@@ -219,6 +219,22 @@ const getLocalizedTestimonial = (testimonial: Testimonial, lang: "EN" | "ES"): T
   return { ...testimonial, ...translations[testimonial.id] };
 };
 
+// An article from /api/blog in the shape the blog section uses.
+const blogPostFromServer = (post: any): BlogPost => {
+  const words = String(post.content_markdown || "").split(/\s+/).filter(Boolean).length;
+  return {
+    id: `published-${post.id}`,
+    serverId: post.id,
+    title: post.title,
+    category: post.category,
+    excerpt: post.excerpt,
+    contentMarkdown: post.content_markdown,
+    imageUrl: post.featured_image_url || "/images/spanish_classroom_hero_1782078041463.webp",
+    readTime: `${Math.max(1, Math.round(words / 200))} min read`,
+    date: post.created_at ? new Date(post.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""
+  };
+};
+
 const getLocalizedBlogPost = (post: BlogPost, lang: "EN" | "ES"): BlogPost => {
   if (lang === "EN") return post;
 
@@ -369,7 +385,18 @@ export default function App() {
   const [studentSession, setStudentSession] = useState<any | null>(null);
   const [teacherSession, setTeacherSession] = useState<any | null>(null);
   const [adminSession, setAdminSession] = useState<any | null>(null);
-  const [customBlogPosts, setCustomBlogPosts] = useState<BlogPost[]>(BLOG_POSTS);
+  // Articles the admin published (from the server) come first, then the built-in ones.
+  const [publishedBlogPosts, setPublishedBlogPosts] = useState<BlogPost[]>([]);
+  const customBlogPosts = useMemo(() => [...publishedBlogPosts, ...BLOG_POSTS], [publishedBlogPosts]);
+  useEffect(() => {
+    fetch("/api/blog")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        if (Array.isArray(data)) setPublishedBlogPosts(data.map(blogPostFromServer));
+      })
+      .catch(() => {});
+  }, []);
+
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
 
   // Slideshow State
@@ -862,12 +889,13 @@ Spanish:
   };
 
   // Admin Blog manager
-  const handleAddBlogPost = (post: BlogPost) => {
-    setCustomBlogPosts([post, ...customBlogPosts]);
+  // `post` is the article as /api/blog returned it after publishing.
+  const handleAddBlogPost = (post: any) => {
+    setPublishedBlogPosts((posts) => [blogPostFromServer(post), ...posts]);
   };
 
   const handleDeleteBlogPost = (id: string) => {
-    setCustomBlogPosts(customBlogPosts.filter(p => p.id !== id));
+    setPublishedBlogPosts((posts) => posts.filter(p => p.id !== id));
   };
 
   // Admin Image overrides
