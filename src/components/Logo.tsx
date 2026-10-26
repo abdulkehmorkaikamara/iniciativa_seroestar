@@ -82,7 +82,7 @@ export default function Logo({
             textAnchor="middle"
             fill="currentColor"
             style={{
-              fontFamily: 'Playball, "Marck Script", cursive',
+              fontFamily: 'Playball, cursive',
               fontSize: "36px",
               fontStyle: "italic",
               fontWeight: "normal"
@@ -98,7 +98,7 @@ export default function Logo({
             textAnchor="middle"
             fill="currentColor"
             style={{
-              fontFamily: 'Playball, "Marck Script", cursive',
+              fontFamily: 'Playball, cursive',
               fontSize: "44px",
               fontWeight: "bold"
             }}
