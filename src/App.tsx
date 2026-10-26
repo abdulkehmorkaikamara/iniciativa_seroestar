@@ -411,6 +411,16 @@ export default function App() {
   const [activeSyllabus, setActiveSyllabus] = useState<Course | null>(null);
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
 
+  // Website images the admin has replaced (shown to every visitor).
+  useEffect(() => {
+    fetch("/api/site-images")
+      .then((res) => (res.ok ? res.json() : {}))
+      .then((data: any) => {
+        if (data?.hero?.path) setImageOverrides((prev) => ({ ...prev, "Hero Banner": data.hero.path }));
+      })
+      .catch(() => {});
+  }, []);
+
   // Testimonials: the built-in ones plus visitor reviews an admin has approved.
   const [testimonialList, setTestimonialList] = useState<Testimonial[]>(TESTIMONIALS);
   useEffect(() => {
@@ -861,11 +871,13 @@ Spanish:
   };
 
   // Admin Image overrides
-  const handleUpdateImage = (imgUpdate: any) => {
-    setImageOverrides(prev => ({
-      ...prev,
-      [imgUpdate.slot]: imgUpdate.fileData
-    }));
+  const handleUpdateImage = (slot: string, path: string | null) => {
+    setImageOverrides(prev => {
+      const next = { ...prev };
+      if (path) next[slot] = path;
+      else delete next[slot];
+      return next;
+    });
   };
 
   return (
@@ -983,7 +995,7 @@ Spanish:
                   onAddBlogPost={handleAddBlogPost}
                   onDeleteBlogPost={handleDeleteBlogPost}
                   onUpdateImage={handleUpdateImage}
-                  customUploadedImages={[]}
+                  imageOverrides={imageOverrides}
                   lang={courseLang}
                 />
               )}

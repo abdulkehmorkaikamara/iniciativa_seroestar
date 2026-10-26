@@ -335,6 +335,18 @@ class StudentNote(Base):
     content = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class StudentFile(Base):
+    """A file a student keeps in their portal's personal locker."""
+
+    __tablename__ = "student_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False, index=True)
+    file_name = Column(String(255), nullable=False)
+    file_url = Column(String(1024), nullable=False)
+    file_size = Column(String(50), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class AnnouncementState(Base):
     """Whether a student has read, or removed from their portal, an announcement."""
 
