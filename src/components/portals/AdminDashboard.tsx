@@ -44,6 +44,7 @@ interface AdminDashboardProps {
   onDeleteBlogPost: (post: any) => void;
   hiddenBuiltinPosts: any[];
   onRestoreBlogPost: (id: string) => void;
+  blogActionError?: string;
   onUpdateImage: (slot: string, path: string | null) => void;
   imageOverrides: Record<string, string>;
   lang?: "EN" | "ES";
@@ -57,6 +58,7 @@ export default function AdminDashboard({
   onDeleteBlogPost,
   hiddenBuiltinPosts,
   onRestoreBlogPost,
+  blogActionError,
   onUpdateImage,
   imageOverrides,
   lang = "EN"
@@ -1537,6 +1539,10 @@ export default function AdminDashboard({
               </div>
             ))}
           </div>
+
+          {blogActionError && (
+            <p role="alert" className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{blogActionError}</p>
+          )}
 
           {hiddenBuiltinPosts.length > 0 && (
             <div className="pt-3 border-t border-slate-100 space-y-2">

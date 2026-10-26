@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, Float, Index, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -394,6 +394,17 @@ class HiddenBuiltinArticle(Base):
     article_key = Column(String(100), nullable=False, unique=True)
     hidden_at = Column(DateTime(timezone=True), server_default=func.now())
     hidden_by = Column(String(255), nullable=True)
+
+class RateLimitEvent(Base):
+    """One failed login or password-reset request, kept briefly so limits hold across server instances."""
+
+    __tablename__ = "rate_limit_events"
+    __table_args__ = (Index("ix_rate_limit_events_lookup", "bucket", "key_hash", "created_at"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    bucket = Column(String(50), nullable=False)  # e.g. "login-email", "login-ip", "reset-email"
+    key_hash = Column(String(64), nullable=False)  # sha256 of the email or IP, never the raw value
+    created_at = Column(DateTime(timezone=True), nullable=False, index=True)
 
 class ImageUpload(Base):
     __tablename__ = "image_uploads"
