@@ -2,6 +2,7 @@ import json
 import os
 import random
 import re
+import secrets
 import hashlib
 import html
 import smtplib
@@ -77,6 +78,10 @@ ADMIN_PASSWORD = os.getenv("SEED_DEVELOPER_PASSWORD") or os.getenv("ADMIN_PASSWO
 RECORDING_WEBHOOK_SECRET = os.getenv("RECORDING_WEBHOOK_SECRET", "")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 PASSWORD_RESET_RESPONSE = "If an eligible account exists for this email, a password-reset link has been sent."
+PASSWORD_RESET_NO_EMAIL_RESPONSE = (
+    "Password reset by email is not available yet. Please ask your tutor, or message the academy on "
+    "WhatsApp (+232 72 057646), to reset your password."
+)
 # Stored role values eligible for self-service recovery, canonical and legacy.
 RECOVERABLE_ROLE_VALUES = tuple(sorted(set(roles.STUDENT_ROLE_VALUES) | set(roles.TUTOR_ROLE_VALUES)))
 
@@ -122,6 +127,12 @@ def _password_reset_app_url(request: Request) -> str:
     if VERCEL_URL:
         return f"https://{VERCEL_URL}"
     return str(request.base_url).rstrip("/")
+
+
+def _email_configured() -> bool:
+    """True when the SMTP settings needed to send emails are all present."""
+    user = os.getenv("SMTP_USER", "").strip()
+    return bool(os.getenv("SMTP_HOST", "").strip() and user and os.getenv("SMTP_PASS", "") and (os.getenv("SMTP_FROM_EMAIL", "").strip() or user))
 
 
 def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
@@ -871,6 +882,25 @@ def provision_google_accounts(payload: schemas.GoogleAccountProvisionRequest, re
     return {"created": created, "failed": failed, "remaining": max(len(pending) - len(created) - len(failed), 0)}
 
 
+TEMP_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+
+
+@app.post("/api/admin/reset-password")
+def admin_reset_password(payload: schemas.AdminPasswordReset, request: Request, db: Session = Depends(get_db)):
+    """Give a student or tutor a new temporary password the admin can pass on."""
+    _require_admin(request)
+    user = db.query(models.User).filter(
+        models.User.email.ilike(payload.email.strip()),
+        models.User.role.in_(RECOVERABLE_ROLE_VALUES),
+    ).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="No student or tutor account uses this email.")
+    temporary_password = "-".join("".join(secrets.choice(TEMP_PASSWORD_ALPHABET) for _ in range(4)) for _ in range(3))
+    user.hashed_password = auth.get_password_hash(temporary_password)
+    db.commit()
+    return {"full_name": user.full_name, "email": user.email, "temporary_password": temporary_password}
+
+
 @app.get("/api/admin/teachers")
 def list_admin_teachers(request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
@@ -920,8 +950,11 @@ def create_admin_teacher(payload: schemas.TeacherCreate, request: Request, db: S
 @app.post("/api/password/forgot", status_code=status.HTTP_202_ACCEPTED)
 def request_password_reset(payload: schemas.PasswordForgotRequest, request: Request, db: Session = Depends(get_db)):
     email = payload.email.lower().strip()
+    if not _email_configured():
+        # Don't promise an email that can never arrive.
+        return {"detail": PASSWORD_RESET_NO_EMAIL_RESPONSE, "email_enabled": False}
     if not _password_reset_request_allowed(request, email):
-        return {"detail": PASSWORD_RESET_RESPONSE}
+        return {"detail": PASSWORD_RESET_RESPONSE, "email_enabled": True}
 
     user = db.query(models.User).filter(
         models.User.email.ilike(email),
@@ -944,7 +977,7 @@ def request_password_reset(payload: schemas.PasswordForgotRequest, request: Requ
         except Exception as exc:
             print(f"Password reset email delivery failed: {type(exc).__name__}")
 
-    return {"detail": PASSWORD_RESET_RESPONSE}
+    return {"detail": PASSWORD_RESET_RESPONSE, "email_enabled": True}
 
 
 @app.post("/api/password/reset")

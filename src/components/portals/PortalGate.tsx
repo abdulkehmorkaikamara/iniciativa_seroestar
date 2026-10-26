@@ -81,6 +81,15 @@ export default function PortalGate({ role, onBack, onSuccess, lang = "EN" }: Por
         setError(payload.detail || (lang === "ES" ? "No se pudo procesar la solicitud." : "Unable to process the request."));
         return;
       }
+      if (payload.email_enabled === false) {
+        // No email account is connected yet, so no link can be sent.
+        setSuccessMessage(
+          lang === "ES"
+            ? "El restablecimiento por correo aún no está disponible. Pide a tu tutor, o escribe a la academia por WhatsApp (+232 72 057646), que restablezca tu contraseña."
+            : "Password reset by email is not available yet. Please ask your tutor, or message the academy on WhatsApp (+232 72 057646), to reset your password."
+        );
+        return;
+      }
       setSuccessMessage(
         lang === "ES"
           ? "Si existe una cuenta elegible con este correo, se ha enviado un enlace para restablecer la contraseña."
