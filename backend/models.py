@@ -398,3 +398,4 @@ class ChatbotFAQ(Base):
     question = Column(String(255), nullable=False)
     answer = Column(Text, nullable=False)
     language = Column(String(10), default="en") # en, es
+    keywords = Column(Text, nullable=True)  # extra words people may use, comma separated
