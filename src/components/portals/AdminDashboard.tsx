@@ -20,7 +20,8 @@ import {
   LogOut,
   Star,
   X,
-  MessageSquare
+  MessageSquare,
+  Download
 } from "lucide-react";
 import { shrinkPhoto } from "../../shrinkPhoto";
 import {
@@ -422,7 +423,17 @@ export default function AdminDashboard({
       .catch(() => setPeopleLoadError(true));
   }, []);
 
+  // Active students, new sign-ups and attendance per group, from the server.
+  const [overview, setOverview] = useState<any | null>(null);
+  const loadOverview = () => {
+    fetch("/api/admin/overview", { headers: adminHeaders })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setOverview(data))
+      .catch(() => setOverview(null));
+  };
+
   const loadPeople = () => {
+    loadOverview();
     fetch("/api/admin/students", { headers: adminHeaders })
       .then((res) => {
         if (!res.ok) throw new Error(`students ${res.status}`);
@@ -476,6 +487,38 @@ export default function AdminDashboard({
   });
   const inactiveCount = peopleStudents.filter((student) => student.active === false).length;
 
+  // Opens in Excel or Google Sheets. Downloads the list as currently filtered.
+  const downloadStudentsCsv = () => {
+    const cell = (value: unknown) => {
+      let text = String(value ?? "");
+      // Stop spreadsheet apps from treating a value as a formula.
+      if (/^[=@]/.test(text) || /^[+-][^\d\s]/.test(text)) text = `'${text}`;
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+    const header = ["Name", "Student code", "Email", "Phone", "Level", "Group", "School", "Status", "Registered"];
+    const rows = visibleStudents.map((student) => {
+      const group = CLASS_GROUPS.find((g) => g.code === studentGroupKey(student));
+      return [
+        student.full_name,
+        student.student_id_code,
+        student.email,
+        student.phone_number,
+        student.course_level,
+        student.class_group,
+        group ? classGroupLabel(group) : "",
+        student.active === false ? "Inactive" : (student.status || "Active"),
+        student.registration_date ? String(student.registration_date).slice(0, 10) : "",
+      ].map(cell).join(",");
+    });
+    const csv = "\ufeff" + [header.map(cell).join(","), ...rows].join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `students_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const saveStudent = async (code: string, changes: Record<string, any>, successText: string) => {
     setStudentSaving(true);
     setStudentTableMessage(null);
@@ -491,6 +534,7 @@ export default function AdminDashboard({
       return false;
     }
     setPeopleStudents((list) => list.map((student) => (student.student_id_code === code ? payload : student)));
+    loadOverview();
     setStudentTableMessage({ type: "success", text: successText });
     return true;
   };
@@ -654,8 +698,8 @@ export default function AdminDashboard({
   // placeholders, so a fresh install correctly shows zeros instead of a
   // fake baseline.
   const telemetryStats = [
-    { title: d("Total Enrolled Students", "Estudiantes Inscritos Totales"), value: d(`${peopleStudents.length - inactiveCount} active`, `${peopleStudents.length - inactiveCount} activos`), icon: Users, change: d("Server-side enrollment", "Inscripción desde servidor"), color: "text-teal-600" },
-    { title: d("Avg Class Roster Attendance", "Asistencia Promedio de Clase"), value: `${teacherAttendanceAverage}%`, icon: Award, change: d("Goal: >90%", "Meta: >90%"), color: "text-emerald-600" },
+    { title: d("Active students", "Estudiantes activos"), value: `${overview?.totals?.active_students ?? peopleStudents.length - inactiveCount}`, icon: Users, change: d(`+${overview?.totals?.new_this_month ?? 0} new this month`, `+${overview?.totals?.new_this_month ?? 0} nuevos este mes`), color: "text-teal-600" },
+    { title: d("Student attendance", "Asistencia de estudiantes"), value: overview?.totals?.attendance_rate == null ? "—" : `${overview.totals.attendance_rate}%`, icon: Award, change: d("Present or late, in recorded classes", "Presente o tarde, en clases registradas"), color: "text-emerald-600" },
     { title: d("Live Classes Completed", "Clases en Vivo Completadas"), value: d(`${totalCompletedClasses} sessions`, `${totalCompletedClasses} sesiones`), icon: Layers, change: d(`${totalLiveClassesNow} live now`, `${totalLiveClassesNow} en vivo ahora`), color: "text-indigo-600" },
     { title: d("Tutor Hours Logged", "Horas de Tutor Registradas"), value: `${totalTeacherHours}h`, icon: Clock, change: d(`${teacherAttendanceAverage}% tutor attendance`, `${teacherAttendanceAverage}% asistencia tutor`), color: "text-orange-500" }
   ];
@@ -837,6 +881,47 @@ export default function AdminDashboard({
           );
         })}
       </div>
+
+      {/* Students by group */}
+      {overview?.groups?.length > 0 && (
+        <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4" id="admin-group-overview">
+          <div className="border-b border-slate-100 pb-3">
+            <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Students by group", "Estudiantes por grupo")}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {d("Active students only. Attendance counts present or late, out of the classes where attendance was recorded.", "Solo estudiantes activos. La asistencia cuenta presente o tarde, sobre las clases con asistencia registrada.")}
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {overview.groups.map((g: any) => {
+              const known = CLASS_GROUPS.find((c) => c.level === g.course_level && `Group ${c.group}` === g.class_group);
+              const rate = g.attendance_rate;
+              return (
+                <div key={`${g.course_level}-${g.class_group}`} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-2">
+                  <div>
+                    <div className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">{g.course_level} · {g.class_group.replace("Group", d("Group", "Grupo"))}</div>
+                    <div className="text-xs font-bold text-slate-800 leading-snug">{known ? classGroupLabel(known) : "—"}</div>
+                  </div>
+                  <div className="flex items-end justify-between gap-2">
+                    <div>
+                      <div className="text-2xl font-black text-slate-900 leading-none">{g.active_students}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold">{d("students", "estudiantes")}{g.new_this_month > 0 && <span className="text-emerald-600"> · +{g.new_this_month} {d("this month", "este mes")}</span>}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className={`text-sm font-black ${rate == null ? "text-slate-400" : rate >= 80 ? "text-emerald-600" : rate >= 60 ? "text-amber-600" : "text-rose-600"}`}>{rate == null ? "—" : `${rate}%`}</div>
+                      <div className="text-[10px] text-slate-500 font-semibold">{d("attendance", "asistencia")}</div>
+                    </div>
+                  </div>
+                  {rate != null && (
+                    <div className="h-1.5 rounded-full bg-slate-200 overflow-hidden" aria-hidden="true">
+                      <div className={`h-full ${rate >= 80 ? "bg-emerald-500" : rate >= 60 ? "bg-amber-500" : "bg-rose-500"}`} style={{ width: `${rate}%` }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-slate-100 pb-3">
@@ -1103,6 +1188,15 @@ export default function AdminDashboard({
                 {d(`Show inactive (${inactiveCount})`, `Mostrar inactivos (${inactiveCount})`)}
               </label>
             )}
+            <button
+              type="button"
+              onClick={downloadStudentsCsv}
+              disabled={visibleStudents.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white text-[11px] font-bold cursor-pointer"
+            >
+              <Download size={13} />
+              {d(`Download list (${visibleStudents.length})`, `Descargar lista (${visibleStudents.length})`)}
+            </button>
           </div>
         </div>
 

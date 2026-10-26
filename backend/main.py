@@ -923,6 +923,58 @@ def list_admin_students(request: Request, db: Session = Depends(get_db)):
     return [_admin_student_dict(student) for student in students]
 
 
+@app.get("/api/admin/overview")
+def admin_overview(request: Request, db: Session = Depends(get_db)):
+    """Active students, new sign-ups this month and attendance, per level and group."""
+    _require_admin(request)
+    now = datetime.now(tz=timezone.utc)
+    students = db.query(models.StudentProfile).all()
+    attended = {}
+    recorded = {}
+    for record in db.query(models.AttendanceRecord).filter(models.AttendanceRecord.student_id.isnot(None)).all():
+        recorded[record.student_id] = recorded.get(record.student_id, 0) + 1
+        if record.status in ("Present", "Late"):
+            attended[record.student_id] = attended.get(record.student_id, 0) + 1
+
+    groups = {}
+    totals = {"active_students": 0, "inactive_students": 0, "new_this_month": 0, "attended": 0, "recorded": 0}
+    for student in students:
+        active = student.status != "Inactive" and bool(student.user and student.user.is_active)
+        joined = student.registration_date
+        new_this_month = bool(joined and joined.year == now.year and joined.month == now.month)
+        level = _course_level_code(student.course_level) or "A1"
+        number = group_number(student.class_group)
+        row = groups.setdefault((level, number), {
+            "course_level": level,
+            "class_group": f"Group {number}",
+            "active_students": 0,
+            "new_this_month": 0,
+            "attended": 0,
+            "recorded": 0,
+        })
+        if not active:
+            totals["inactive_students"] += 1
+            continue
+        row["active_students"] += 1
+        totals["active_students"] += 1
+        if new_this_month:
+            row["new_this_month"] += 1
+            totals["new_this_month"] += 1
+        for target in (row, totals):
+            target["attended"] += attended.get(student.id, 0)
+            target["recorded"] += recorded.get(student.id, 0)
+
+    def with_rate(row: dict) -> dict:
+        rate = round(row["attended"] / row["recorded"] * 100) if row["recorded"] else None
+        return {**row, "attendance_rate": rate}
+
+    return {
+        "month": now.strftime("%Y-%m"),
+        "totals": with_rate(totals),
+        "groups": [with_rate(row) for _, row in sorted(groups.items()) if row["active_students"]],
+    }
+
+
 def _admin_student_dict(student: models.StudentProfile) -> dict:
     return {
         "id": student.id,
