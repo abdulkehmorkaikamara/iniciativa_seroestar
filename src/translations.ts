@@ -60,7 +60,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     heroFeatureResultsDesc: "Designed to help you achieve a relaxed 15-minute conversation in as little as 8 weeks",
 
     // Why Us Section
-    whyTitle: "WHY LEARN SPANISH WITH US?",
+    whyTitle: "Why learn Spanish with us?",
     whyIntro: "WHAT SETS US APART?",
     whyConnect: "Connect globally",
     whyConnectDesc: "Learn Spanish to communicate with people across countries and cultures, opening doors to 20+ Spanish-speaking nations.",
@@ -349,7 +349,7 @@ export const TRANSLATIONS: Record<"EN" | "ES", any> = {
     heroFeatureResultsDesc: "Diseñado para ayudarte a lograr una conversación relajada de 15 minutos en tan solo 8 semanas",
 
     // Why Us Section
-    whyTitle: "¿POR QUÉ APRENDER ESPAÑOL CON NOSOTROS?",
+    whyTitle: "¿Por qué aprender español con nosotros?",
     whyIntro: "¿QUÉ NOS DIFERENCIA?",
     whyConnect: "Conéctate globalmente",
     whyConnectDesc: "Aprende español para comunicarte con personas de diferentes países y culturas, abriendo puertas en más de 20 naciones hispanohablantes.",
