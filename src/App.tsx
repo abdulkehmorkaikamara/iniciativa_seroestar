@@ -2075,13 +2075,6 @@ Spanish:
                 </h3>
                 <p className="text-sm text-slate-600 leading-relaxed">
                   {courseLang === "EN" ? (
-                    <>Founded in 2021 by a cooperative of native linguists and adult education psychologists, <strong>Iniciativa Ser o Estar</strong> was created to eliminate the common frustration of learning a language. We discovered that traditional classroom workflows fail English speakers because they teach rote-memory conjugation lists rather than conceptual linguistic anchors.</>
-                  ) : (
-                    <>Fundada en 2021 por una cooperativa de lingüistas nativos y psicólogos de educación para adultos, <strong>Iniciativa Ser o Estar</strong> fue creada para eliminar la frustración común de aprender un idioma. Descubrimos que los métodos tradicionales de aula fallan a los angloparlantes porque enseñan listas de conjugación memorizadas por repetición en lugar de anclas lingüísticas conceptuales.</>
-                  )}
-                </p>
-                <p className="text-sm text-slate-600 leading-relaxed">
-                  {courseLang === "EN" ? (
                     <>Our customized courses are built entirely upon cognitive metaphors. That means we don't just teach you what words mean; we teach your brain how to interpret situations visually so that choosing between <strong>SER</strong> and <strong>ESTAR</strong> becomes absolute second nature.</>
                   ) : (
                     <>Nuestros cursos personalizados se construyen completamente sobre metáforas cognitivas. Eso significa que no solo te enseñamos lo que significan las palabras; enseñamos a tu cerebro a interpretar situaciones visualmente para que elegir entre <strong>SER</strong> y <strong>ESTAR</strong> se convierta en una segunda naturaleza absoluta.</>
@@ -2521,7 +2514,7 @@ Spanish:
                 </button>
               </div>
               <p className="text-[10px] text-slate-700 mt-3">
-                &copy; {new Date().getFullYear()} Iniciativa Ser o Estar. {courseLang === "EN" ? "All rights reserved. Licensed developer workspaces active." : "Todos los derechos reservados. Espacios de desarrollo autorizados activos."}
+                &copy; {new Date().getFullYear()} Iniciativa Ser o Estar. {courseLang === "EN" ? "All rights reserved." : "Todos los derechos reservados."}
               </p>
             </div>
 

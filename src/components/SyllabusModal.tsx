@@ -5,7 +5,7 @@
 
 import React, { useState } from "react";
 import { motion } from "motion/react";
-import { X, FileText, CheckCircle2, Download, Send, PhoneCall } from "lucide-react";
+import { X, FileText, CheckCircle2, Download, PhoneCall } from "lucide-react";
 import { Course } from "../types";
 
 interface SyllabusModalProps {
@@ -15,24 +15,12 @@ interface SyllabusModalProps {
 }
 
 export default function SyllabusModal({ course, onClose, lang = "EN" }: SyllabusModalProps) {
-  const [email, setEmail] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [submitted, setSubmitted] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   if (!course) return null;
 
   const isEs = lang === "ES";
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !email.includes("@")) {
-      setErrorMsg(isEs ? "Por favor ingresa un correo electrónico válido." : "Please enter a valid email address.");
-      return;
-    }
-    setErrorMsg("");
-    setSubmitted(true);
-  };
 
   // Structured outline for week-by-week curriculum depending on course level
   const syllabusWeeks = {
@@ -104,6 +92,59 @@ export default function SyllabusModal({ course, onClose, lang = "EN" }: Syllabus
   const courseTitleName = isEs
     ? (course.id === "a1" ? "Plan de Estudios de Nivel Inicial" : course.id === "a2" ? "Plan de Estudios de Nivel Elemental" : "Plan de Estudios de Nivel Intermedio")
     : `${course.title} Curriculum`;
+
+  // Build the syllabus PDF in the browser (jsPDF is loaded only when needed).
+  const handleDownloadPdf = async () => {
+    setDownloading(true);
+    setErrorMsg("");
+    try {
+      const { jsPDF } = await import("jspdf");
+      const doc = new jsPDF({ unit: "mm", format: "a4" });
+      const left = 18;
+      const width = 174;
+      let y = 22;
+      const ensureRoom = (needed: number) => {
+        if (y + needed > 280) {
+          doc.addPage();
+          y = 20;
+        }
+      };
+      const write = (text: string, size: number, style: "normal" | "bold", color: [number, number, number], gap: number) => {
+        doc.setFont("helvetica", style);
+        doc.setFontSize(size);
+        doc.setTextColor(...color);
+        const lines = doc.splitTextToSize(text, width);
+        ensureRoom(lines.length * size * 0.42);
+        doc.text(lines, left, y);
+        y += lines.length * size * 0.42 + gap;
+      };
+
+      write("Iniciativa Ser o Estar", 11, "bold", [234, 88, 12], 2);
+      write(`${courseLevelName} – ${courseTitleName}`, 18, "bold", [15, 23, 42], 6);
+      write(isEs ? "Competencias clave" : "Core competencies", 12, "bold", [15, 23, 42], 2);
+      course.objectives.forEach((obj) => write(`•  ${translateObjective(obj)}`, 10, "normal", [51, 65, 85], 1.5));
+      y += 4;
+      write(isEs ? "Hoja de ruta de ocho semanas" : "Eight-week roadmap", 12, "bold", [15, 23, 42], 3);
+      activeSyllabus.forEach((sw) => {
+        ensureRoom(20);
+        write(sw.week, 9, "bold", [234, 88, 12], 1);
+        write(sw.topic, 11, "bold", [15, 23, 42], 1);
+        write(sw.detail, 10, "normal", [71, 85, 105], 4);
+      });
+      y += 4;
+      write(
+        isEs
+          ? "¿Preguntas o quieres inscribirte? Escríbenos por WhatsApp: +232 72 057646 · iseroestar.com"
+          : "Questions or ready to enrol? Message us on WhatsApp: +232 72 057646 · iseroestar.com",
+        9, "normal", [100, 116, 139], 0
+      );
+      doc.save(`Iniciativa_Ser_o_Estar_Syllabus_${course.level.replace(/\s+/g, "_")}.pdf`);
+    } catch {
+      setErrorMsg(isEs ? "No se pudo crear el PDF. Inténtalo de nuevo." : "The PDF could not be created. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div
@@ -190,79 +231,22 @@ export default function SyllabusModal({ course, onClose, lang = "EN" }: Syllabus
             </div>
           </div>
 
-          {/* Interactive download action panel */}
-          <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 text-center">
-            {submitted ? (
-              <div className="space-y-3.5 py-2">
-                <div className="mx-auto w-10 h-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                  <CheckCircle2 size={24} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-slate-800">
-                    {isEs ? "¡Plan de estudios generado exitosamente!" : "Syllabus PDF generated successfully!"}
-                  </h4>
-                  <p className="text-[11px] text-slate-500 mt-1">
-                    {isEs ? "Enviamos el enlace y los materiales de ingreso a" : "We sent the link and detailed entry materials to"}{" "}
-                    <strong className="text-slate-800">{email}</strong>.
-                  </p>
-                </div>
-                <button
-                  onClick={() => {
-                    // Trigger instant local download as a mock action
-                    const content = `INICIATIVA SER o ESTAR - SYLLABUS ${course.level}\n========================================\nLevel: ${course.title}\n\nOur Methodology: Cognitive Spanish templates designed specifically for native English speakers.\n\nSyllabus Outline:\n` + activeSyllabus.map(s => `- ${s.week}: ${s.topic}\n  ${s.detail}`).join("\n");
-                    const blob = new Blob([content], { type: "text/plain" });
-                    const url = URL.createObjectURL(blob);
-                    const link = document.createElement("a");
-                    link.href = url;
-                    link.download = `Iniciativa_Ser_o_Estar_Syllabus_${course.level.replace(" ", "_")}.txt`;
-                    link.click();
-                  }}
-                  className="inline-flex items-center space-x-2 py-2 px-5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold font-sans text-xs tracking-wider uppercase transition shadow-md cursor-pointer"
-                >
-                  <Download size={13} />
-                  <span>{isEs ? "Descargar copia de texto" : "Download Text Copy"}</span>
-                </button>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-1.5">
-                  <h4 className="text-sm font-bold text-slate-800 flex items-center justify-center">
-                    <Download size={14} className="mr-1.5 text-orange-600" />
-                    {isEs ? "Descargar PDF Completo y Materiales" : "Download Complete PDF & Materials"}
-                  </h4>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-normal">
-                    {isEs
-                      ? "Ingresa tu correo electrónico para recibir matrices de estudio estándar, mapas de conjugación y el PDF imprimible del plan de estudios."
-                      : "Enter your email to receive standard study matrices, conjugation maps, and the printable syllabus PDF."}
-                  </p>
-                </div>
-
-                <div className="flex flex-col sm:flex-row gap-2 max-w-md mx-auto justify-center">
-                  <input
-                    type="email"
-                    placeholder={isEs ? "Ingresa tu correo electrónico" : "Enter your email address"}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 text-xs focus:outline-hidden focus:ring-1 focus:ring-orange-500 text-slate-800"
-                    required
-                  />
-                  <button
-                    type="submit"
-                    className="px-5 py-2.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold font-sans tracking-wide uppercase rounded-xl transition flex items-center justify-center space-x-1.5 shrink-0 cursor-pointer"
-                  >
-                    <span>{isEs ? "Solicitar PDF" : "Request PDF"}</span>
-                    <Send size={11} />
-                  </button>
-                </div>
-
-                {errorMsg && <p className="text-[11px] text-red-500 font-medium">{errorMsg}</p>}
-                <p className="text-[10px] text-slate-400">
-                  {isEs
-                    ? "Respetando la privacidad: Nunca te enviaremos spam. Solo tarjetas de trucos lingüísticos de alto valor."
-                    : "Respecting privacy: We will never spam you. Only high-value language cheat cards."}
-                </p>
-              </form>
-            )}
+          {/* Download the syllabus as a PDF */}
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-5 text-center space-y-3">
+            <p className="text-xs text-slate-600 max-w-md mx-auto leading-normal">
+              {isEs
+                ? "Guarda este plan de estudios en tu teléfono u ordenador para consultarlo cuando quieras."
+                : "Save this syllabus to your phone or computer to read any time."}
+            </p>
+            <button
+              onClick={handleDownloadPdf}
+              disabled={downloading}
+              className="inline-flex items-center space-x-2 py-2.5 px-5 bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-white rounded-xl font-bold font-sans text-xs tracking-wider uppercase transition shadow-md cursor-pointer"
+            >
+              <Download size={13} />
+              <span>{downloading ? (isEs ? "Creando PDF..." : "Creating PDF...") : (isEs ? "Descargar plan de estudios (PDF)" : "Download syllabus (PDF)")}</span>
+            </button>
+            {errorMsg && <p className="text-[11px] text-red-500 font-medium">{errorMsg}</p>}
           </div>
         </div>
 
