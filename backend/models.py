@@ -371,6 +371,16 @@ class BlogPost(Base):
     published = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class HiddenBuiltinArticle(Base):
+    """A built-in blog article (written in the site's code) the admin removed from the website."""
+
+    __tablename__ = "hidden_builtin_articles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_key = Column(String(100), nullable=False, unique=True)
+    hidden_at = Column(DateTime(timezone=True), server_default=func.now())
+    hidden_by = Column(String(255), nullable=True)
+
 class ImageUpload(Base):
     __tablename__ = "image_uploads"
 

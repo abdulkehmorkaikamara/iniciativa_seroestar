@@ -2802,12 +2802,18 @@ def post_chat_message(session_id: int, payload: schemas.ChatMessagePost, request
 @app.post("/api/blog", response_model=schemas.BlogPostResponse)
 def create_blog_post(payload: schemas.BlogPostCreate, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
+    title, excerpt, content = payload.title.strip(), payload.excerpt.strip(), payload.content_markdown.strip()
+    if not title or not excerpt or not content:
+        raise HTTPException(status_code=400, detail="Add a title, a summary and the article text.")
+    image_url = (payload.featured_image_url or "").strip() or None
+    if image_url and not (image_url.startswith("https://") or image_url.startswith("/")):
+        raise HTTPException(status_code=400, detail="The image link must start with https://")
     post = models.BlogPost(
-        title=payload.title,
-        category=payload.category,
-        excerpt=payload.excerpt,
-        content_markdown=payload.content_markdown,
-        featured_image_url=payload.featured_image_url or "/src/assets/images/placeholder.jpg",
+        title=title,
+        category=payload.category.strip(),
+        excerpt=excerpt,
+        content_markdown=content,
+        featured_image_url=image_url,
         published=True
     )
     db.add(post)
@@ -2817,7 +2823,53 @@ def create_blog_post(payload: schemas.BlogPostCreate, request: Request, db: Sess
 
 @app.get("/api/blog", response_model=List[schemas.BlogPostResponse])
 def list_blog_posts(db: Session = Depends(get_db)):
-    return db.query(models.BlogPost).all()
+    """Published articles, newest first."""
+    return db.query(models.BlogPost).filter(models.BlogPost.published.is_(True)).order_by(models.BlogPost.id.desc()).all()
+
+@app.delete("/api/blog/{post_id}")
+def delete_blog_post(post_id: int, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    post = db.query(models.BlogPost).filter(models.BlogPost.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Article not found.")
+    db.delete(post)
+    db.commit()
+    return {"detail": "Article deleted"}
+
+
+# The built-in articles live in the frontend code; the admin can still take
+# one off the website, and bring it back later.
+BUILTIN_ARTICLE_KEY = re.compile(r"^[a-z0-9-]{1,100}$")
+
+
+def _builtin_article_key(key: str) -> str:
+    if not BUILTIN_ARTICLE_KEY.match(key):
+        raise HTTPException(status_code=404, detail="Article not found.")
+    return key
+
+
+@app.get("/api/blog/hidden-builtins")
+def list_hidden_builtin_articles(db: Session = Depends(get_db)):
+    return [row.article_key for row in db.query(models.HiddenBuiltinArticle).order_by(models.HiddenBuiltinArticle.id).all()]
+
+
+@app.put("/api/blog/hidden-builtins/{key}")
+def hide_builtin_article(key: str, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _require_admin(request)
+    key = _builtin_article_key(key)
+    if not db.query(models.HiddenBuiltinArticle).filter(models.HiddenBuiltinArticle.article_key == key).first():
+        db.add(models.HiddenBuiltinArticle(article_key=key, hidden_by=str(auth_payload.get("sub") or "").lower() or None))
+        db.commit()
+    return {"detail": "Article removed from the website"}
+
+
+@app.delete("/api/blog/hidden-builtins/{key}")
+def restore_builtin_article(key: str, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    key = _builtin_article_key(key)
+    db.query(models.HiddenBuiltinArticle).filter(models.HiddenBuiltinArticle.article_key == key).delete(synchronize_session=False)
+    db.commit()
+    return {"detail": "Article is back on the website"}
 
 
 # --- 5. Interactive Image Uploads ---

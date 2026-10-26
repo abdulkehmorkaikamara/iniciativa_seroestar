@@ -41,7 +41,9 @@ interface AdminDashboardProps {
   adminProfile?: any;
   blogPosts: any[];
   onAddBlogPost: (post: any) => void;
-  onDeleteBlogPost: (id: string) => void;
+  onDeleteBlogPost: (post: any) => void;
+  hiddenBuiltinPosts: any[];
+  onRestoreBlogPost: (id: string) => void;
   onUpdateImage: (slot: string, path: string | null) => void;
   imageOverrides: Record<string, string>;
   lang?: "EN" | "ES";
@@ -271,6 +273,8 @@ export default function AdminDashboard({
   blogPosts,
   onAddBlogPost,
   onDeleteBlogPost,
+  hiddenBuiltinPosts,
+  onRestoreBlogPost,
   onUpdateImage,
   imageOverrides,
   lang = "EN"
@@ -312,6 +316,9 @@ export default function AdminDashboard({
   const [blogExcerpt, setBlogExcerpt] = useState("");
   const [blogContent, setBlogContent] = useState("");
   const [blogImage, setBlogImage] = useState("");
+  const [blogImageFile, setBlogImageFile] = useState<File | null>(null);
+  const [blogSaving, setBlogSaving] = useState(false);
+  const [blogStatus, setBlogStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Target image replacement state
   const [replaceTargetSlot, setReplaceTargetSlot] = useState("Hero Banner");
@@ -706,28 +713,57 @@ export default function AdminDashboard({
     { slot: "Hero Banner", key: "hero", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.webp" }
   ];
 
-  // Submit Blog
-  const handlePublishBlog = (e: React.FormEvent) => {
+  // Publish an article: it is saved on the server and every visitor sees it.
+  const handlePublishBlog = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!blogTitle || !blogExcerpt || !blogContent) return;
-
-    const newPost = {
-      id: `blog-art-${Date.now()}`,
-      title: blogTitle,
-      category: blogCategory,
-      excerpt: blogExcerpt,
-      contentMarkdown: blogContent,
-      imageUrl: blogImage || "https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80",
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-      readTime: "4 min read"
+    if (!blogTitle.trim() || !blogExcerpt.trim() || !blogContent.trim() || blogSaving) return;
+    setBlogSaving(true);
+    setBlogStatus(null);
+    const fail = (message: string) => {
+      setBlogSaving(false);
+      setBlogStatus({ type: "error", message });
     };
 
-    onAddBlogPost(newPost);
-    alert(d("Práctico! Newly compiled blog post successfully integrated in landing page feed!", "¡Práctico! ¡La nueva publicación de blog ha sido integrada exitosamente en el canal de la página de inicio!"));
+    let imageUrl = blogImage.trim();
+    if (blogImageFile) {
+      const file = await shrinkPhoto(blogImageFile);
+      if (file.size > 4 * 1024 * 1024) return fail(d("This photo is bigger than 4 MB. Try a smaller one.", "Esta foto supera los 4 MB. Prueba con una más pequeña."));
+      const formData = new FormData();
+      formData.append("category", "blog");
+      formData.append("title", blogTitle.trim().slice(0, 255));
+      formData.append("alt_text", blogTitle.trim().slice(0, 255));
+      formData.append("file", file);
+      const upload = await fetch("/api/images", { method: "POST", body: formData }).catch(() => null);
+      const uploaded = await upload?.json().catch(() => null);
+      if (!upload?.ok || !uploaded?.path) return fail((typeof uploaded?.detail === "string" && uploaded.detail) || d("The photo upload failed. Check your connection and try again.", "La subida de la foto falló. Revisa tu conexión e inténtalo de nuevo."));
+      imageUrl = uploaded.path;
+    }
+
+    const response = await fetch("/api/blog", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: blogTitle.trim(),
+        category: blogCategory,
+        excerpt: blogExcerpt.trim(),
+        content_markdown: blogContent.trim(),
+        featured_image_url: imageUrl || null
+      })
+    }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    if (!response?.ok) {
+      const detail = typeof payload?.detail === "string" ? payload.detail : null;
+      return fail(detail || d("The article could not be published. Check every field and try again.", "No se pudo publicar el artículo. Revisa todos los campos e inténtalo de nuevo."));
+    }
+
+    onAddBlogPost(payload);
+    setBlogSaving(false);
+    setBlogStatus({ type: "success", message: d("Published. The article is now on the website's blog.", "Publicado. El artículo ya está en el blog de la web.") });
     setBlogTitle("");
     setBlogExcerpt("");
     setBlogContent("");
     setBlogImage("");
+    setBlogImageFile(null);
   };
 
   const pickReplacementImage = (file: File | undefined) => {
@@ -1255,14 +1291,22 @@ export default function AdminDashboard({
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-400 uppercase">{d("Featured Image Link (Optional)", "Enlace de Imagen Destacada (Opcional)")}</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase">{d("Cover Photo (Optional)", "Foto de Portada (Opcional)")}</label>
               <input
-                type="text"
-                placeholder="https://images.unsplash.com/photo-..."
-                value={blogImage}
-                onChange={(e) => setBlogImage(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp"
+                onChange={(e) => setBlogImageFile(e.target.files?.[0] || null)}
+                className="w-full text-[11px] text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-2.5 file:py-1.5 file:text-[11px] file:font-bold file:text-slate-700"
               />
+              {!blogImageFile && (
+                <input
+                  type="url"
+                  placeholder={d("...or paste a link: https://...", "...o pega un enlace: https://...")}
+                  value={blogImage}
+                  onChange={(e) => setBlogImage(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+                />
+              )}
             </div>
 
             <div className="sm:col-span-3 space-y-1.5">
@@ -1290,11 +1334,17 @@ export default function AdminDashboard({
             <div className="sm:col-span-3">
               <button
                 type="submit"
-                className="w-full inline-flex justify-center items-center py-2.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl font-bold font-sans text-xs tracking-wide transition shadow-md shadow-orange-600/10 hover:shadow-lg focus:outline-hidden cursor-pointer"
+                disabled={blogSaving}
+                className={`w-full inline-flex justify-center items-center py-2.5 text-white rounded-xl font-bold font-sans text-xs tracking-wide transition shadow-md shadow-orange-600/10 focus:outline-hidden ${blogSaving ? "bg-orange-400 cursor-wait" : "bg-orange-600 hover:bg-orange-500 hover:shadow-lg cursor-pointer"}`}
               >
                 <Plus size={14} className="mr-1.5" />
-                <span>{d("Publish to Public Landing Page Feed", "Publicar en el Canal de la Página de Inicio Pública")}</span>
+                <span>{blogSaving ? d("Publishing...", "Publicando...") : d("Publish on the website's blog", "Publicar en el blog de la web")}</span>
               </button>
+              {blogStatus && (
+                <p role={blogStatus.type === "error" ? "alert" : "status"} className={`mt-3 rounded-xl border px-3 py-2 text-xs font-semibold ${blogStatus.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                  {blogStatus.message}
+                </p>
+              )}
             </div>
           </form>
         </div>
@@ -1311,12 +1361,12 @@ export default function AdminDashboard({
             {blogPosts.map(bp => (
               <div key={bp.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center text-xs">
                 <div className="truncate pr-4 space-y-0.5">
-                  <span className="text-[9px] font-semibold text-slate-400">{bp.date} • {bp.category}</span>
+                  <span className="text-[9px] font-semibold text-slate-400">{bp.serverId ? `${bp.date} • ${bp.category}` : `${d("Built-in", "Incluido")} • ${bp.category}`}</span>
                   <h4 className="font-bold text-slate-800 truncate leading-tight pr-5">{bp.title}</h4>
                 </div>
 
                 <button
-                  onClick={() => onDeleteBlogPost(bp.id)}
+                  onClick={() => onDeleteBlogPost(bp)}
                   className="p-1.5 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition shrink-0 cursor-pointer"
                   title={d("Delete post", "Eliminar publicación")}
                 >
@@ -1325,6 +1375,23 @@ export default function AdminDashboard({
               </div>
             ))}
           </div>
+
+          {hiddenBuiltinPosts.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <h4 className="text-[10px] font-bold text-slate-400 uppercase">{d("Removed built-in articles", "Artículos incluidos eliminados")}</h4>
+              {hiddenBuiltinPosts.map(bp => (
+                <div key={bp.id} className="p-3 bg-white border border-dashed border-slate-200 rounded-xl flex justify-between items-center gap-2 text-xs">
+                  <span className="truncate text-slate-500">{bp.title}</span>
+                  <button
+                    onClick={() => onRestoreBlogPost(bp.id)}
+                    className="shrink-0 text-[11px] font-bold text-orange-600 hover:text-orange-500 cursor-pointer"
+                  >
+                    {d("Bring back", "Restaurar")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
