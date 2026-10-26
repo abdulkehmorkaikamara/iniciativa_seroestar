@@ -886,22 +886,49 @@ def migrate_students(payload: List[schemas.StudentRegister], request: Request, d
 @app.get("/api/admin/students")
 def list_admin_students(request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
-    students = db.query(models.StudentProfile).all()
-    return [
-        {
-            "id": student.id,
-            "student_id_code": student.student_id_code,
-            "full_name": student.user.full_name if student.user else student.student_id_code,
-            "email": student.user.email if student.user else "",
-            "phone_number": student.phone_number,
-            "course_level": student.course_level,
-            "class_group": student.class_group,
-            "learning_mode": student.learning_mode,
-            "status": student.status,
-            "registration_date": student.registration_date,
-        }
-        for student in students
-    ]
+    students = db.query(models.StudentProfile).order_by(models.StudentProfile.id.desc()).all()
+    return [_admin_student_dict(student) for student in students]
+
+
+def _admin_student_dict(student: models.StudentProfile) -> dict:
+    return {
+        "id": student.id,
+        "student_id_code": student.student_id_code,
+        "full_name": student.user.full_name if student.user else student.student_id_code,
+        "email": student.user.email if student.user else "",
+        "phone_number": student.phone_number,
+        "course_level": student.course_level,
+        "class_group": student.class_group,
+        "learning_mode": student.learning_mode,
+        "status": student.status,
+        "active": bool(student.user.is_active) if student.user else False,
+        "registration_date": student.registration_date,
+    }
+
+
+@app.put("/api/admin/students/{student_id_code}")
+def update_admin_student(student_id_code: str, payload: schemas.AdminStudentUpdate, request: Request, db: Session = Depends(get_db)):
+    """Edit a student's details, move them to another group, or (de)activate them."""
+    _require_admin(request)
+    student = db.query(models.StudentProfile).filter(models.StudentProfile.student_id_code == student_id_code).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+    if payload.full_name is not None and student.user:
+        student.user.full_name = payload.full_name.strip()
+    if payload.phone_number is not None:
+        student.phone_number = payload.phone_number.strip() or None
+    if payload.course_level is not None:
+        student.course_level = payload.course_level
+    if payload.class_group is not None:
+        student.class_group = payload.class_group.strip()
+    if payload.active is not None:
+        # Inactive students cannot sign in; their grades and work are kept.
+        if student.user:
+            student.user.is_active = payload.active
+        student.status = "Active" if payload.active else "Inactive"
+    db.commit()
+    db.refresh(student)
+    return _admin_student_dict(student)
 
 
 @app.post("/api/admin/students", response_model=schemas.StudentResponse)
@@ -2097,6 +2124,8 @@ def _student_for_payload(payload: dict, db: Session) -> models.StudentProfile:
     student = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == payload.get("id")).first()
     if not student:
         raise HTTPException(status_code=403, detail="No student record for this account.")
+    if student.user and not student.user.is_active:
+        raise HTTPException(status_code=403, detail="This account has been deactivated.")
     return student
 
 
@@ -2177,7 +2206,7 @@ def mark_messages_read(payload: schemas.PortalMessageReadRequest, request: Reque
 def list_message_students(request: Request, db: Session = Depends(get_db)):
     """Students a tutor can start a conversation with."""
     _request_auth_payload(request, set(roles.STAFF_ROLES))
-    students = db.query(models.StudentProfile).all()
+    students = db.query(models.StudentProfile).filter(models.StudentProfile.status != "Inactive").all()
     return [
         {
             "student_id_code": student.student_id_code,
@@ -2196,7 +2225,7 @@ def get_group_attendance(course_level: str, class_group: str, request: Request, 
     level = _course_level_code(course_level)
     students = [
         student
-        for student in db.query(models.StudentProfile).all()
+        for student in db.query(models.StudentProfile).filter(models.StudentProfile.status != "Inactive").all()
         if _course_level_code(student.course_level) == level and group_number(student.class_group) == group_number(class_group)
     ]
     sessions = [
@@ -2234,7 +2263,7 @@ def get_group_attendance(course_level: str, class_group: str, request: Request, 
 def _students_in_group(level: str, class_group: str | None, db: Session) -> list[models.StudentProfile]:
     students = [
         student
-        for student in db.query(models.StudentProfile).all()
+        for student in db.query(models.StudentProfile).filter(models.StudentProfile.status != "Inactive").all()
         if _course_level_code(student.course_level) == level and group_number(student.class_group) == group_number(class_group)
     ]
     return sorted(students, key=lambda s: ((s.user.full_name if s.user else "") or s.student_id_code).lower())

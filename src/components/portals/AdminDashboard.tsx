@@ -33,7 +33,6 @@ import {
   Tooltip,
   CartesianGrid
 } from "recharts";
-import { TUTOR_PROFILES } from "../../tutors";
 import PasswordInput from "../PasswordInput";
 import { groupOptionsForLevel, CLASS_GROUPS, classGroupLabel } from "../../groups";
 
@@ -49,224 +48,6 @@ interface AdminDashboardProps {
   imageOverrides: Record<string, string>;
   lang?: "EN" | "ES";
 }
-
-const readLocalList = (key: string) => {
-  try {
-    const raw = localStorage.getItem(key);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const writeLocalList = (key: string, value: any[]) => {
-  localStorage.setItem(key, JSON.stringify(value));
-};
-
-const generateLocalCode = (prefix: string, existingCodes: string[]) => {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const code = `${prefix}-${Math.floor(Math.random() * 900) + 100}`;
-    if (!existingCodes.includes(code)) return code;
-  }
-  return `${prefix}-${Date.now().toString().slice(-5)}`;
-};
-
-const localStudentsForAdmin = () =>
-  readLocalList("portal_students").map((student: any, index: number) => ({
-    id: index + 1,
-    student_id_code: student.studentIdCode || student.student_id_code,
-    full_name: student.fullName || student.full_name,
-    email: student.email,
-    phone_number: student.phoneNumber || student.phone_number || "",
-    course_level: student.courseLevel || student.course_level || "A1",
-    class_group: student.classGroup || student.class_group || "Morning Group",
-    learning_mode: student.learningMode || student.learning_mode || "Online",
-    status: student.status || "Active",
-    registration_date: student.registrationDate || student.registration_date || new Date().toISOString(),
-  }));
-
-const localTeachersForAdmin = () => [
-  ...readLocalList("portal_teachers").map((teacher: any, index: number) => ({
-    id: index + 1,
-    teacher_id_code: teacher.teacherId || teacher.teacher_id_code,
-    name: teacher.fullName || teacher.full_name || teacher.name,
-    display_name: teacher.displayName || teacher.display_name || teacher.fullName || teacher.name,
-    email: teacher.email,
-    assigned_levels: teacher.assignedLevels || teacher.assigned_levels || ["A1"],
-    source: "database",
-  })),
-  ...TUTOR_PROFILES.map((tutor) => ({
-    id: tutor.id,
-    teacher_id_code: tutor.id,
-    name: tutor.name,
-    display_name: tutor.displayName,
-    email: tutor.email,
-    assigned_levels: tutor.assignedLevels,
-    source: "template",
-  })),
-];
-
-const createLocalStudentAccount = (payload: any) => {
-  const existing = readLocalList("portal_students");
-  const email = String(payload.email || "").trim().toLowerCase();
-  if (existing.some((student: any) => String(student.email || "").toLowerCase() === email)) {
-    throw new Error("An account with this email already exists.");
-  }
-
-  const studentIdCode = generateLocalCode(
-    "SER",
-    existing.map((student: any) => student.studentIdCode || student.student_id_code).filter(Boolean),
-  );
-  const now = new Date().toISOString();
-  const student = {
-    fullName: payload.full_name,
-    studentIdCode,
-    email,
-    password: payload.password,
-    phoneNumber: payload.phone_number || "",
-    courseLevel: payload.course_level || "A1",
-    classGroup: payload.class_group || "Morning Group",
-    learningMode: payload.learning_mode || "Online",
-    status: payload.status || "Active",
-    registrationDate: now,
-    authMethod: "Admin Local",
-  };
-
-  writeLocalList("portal_students", [...existing, student]);
-  return {
-    student_id_code: studentIdCode,
-    full_name: student.fullName,
-    email: student.email,
-    course_level: student.courseLevel,
-    class_group: student.classGroup,
-    learning_mode: student.learningMode,
-  };
-};
-
-const mirrorLocalStudentAccount = (payload: any, studentIdCode?: string) => {
-  const existing = readLocalList("portal_students");
-  const email = String(payload.email || "").trim().toLowerCase();
-  const now = new Date().toISOString();
-  const existingIndex = existing.findIndex((student: any) => String(student.email || "").toLowerCase() === email);
-  const current = existingIndex >= 0 ? existing[existingIndex] : {};
-  // No `password` field: this mirror exists only so the roster can still
-  // render (name/email/course info) if the real API is briefly unreachable
-  // — localStudentsForAdmin() never reads a password back — so there is no
-  // reason to keep a plaintext copy of it sitting in browser storage.
-  const student = {
-    ...current,
-    fullName: payload.full_name || current.fullName || current.full_name,
-    studentIdCode: studentIdCode || current.studentIdCode || current.student_id_code || generateLocalCode(
-      "SER",
-      existing.map((record: any) => record.studentIdCode || record.student_id_code).filter(Boolean),
-    ),
-    email,
-    password: undefined,
-    phoneNumber: payload.phone_number || current.phoneNumber || current.phone_number || "",
-    courseLevel: payload.course_level || current.courseLevel || current.course_level || "A1",
-    classGroup: payload.class_group || current.classGroup || current.class_group || "Morning Group",
-    learningMode: payload.learning_mode || current.learningMode || current.learning_mode || "Online",
-    status: payload.status || current.status || "Active",
-    registrationDate: current.registrationDate || current.registration_date || now,
-    authMethod: "Admin Mirror",
-  };
-
-  if (existingIndex >= 0) {
-    existing[existingIndex] = student;
-  } else {
-    existing.push(student);
-  }
-  writeLocalList("portal_students", existing);
-  return student;
-};
-
-const createLocalTeacherAccount = (payload: any) => {
-  const existing = readLocalList("portal_teachers");
-  const email = String(payload.email || "").trim().toLowerCase();
-  const emailExists =
-    existing.some((teacher: any) => String(teacher.email || "").toLowerCase() === email) ||
-    TUTOR_PROFILES.some((teacher) => teacher.email.toLowerCase() === email);
-
-  if (emailExists) {
-    throw new Error("An account with this email already exists.");
-  }
-
-  const teacherId = generateLocalCode(
-    "TUT",
-    existing.map((teacher: any) => teacher.teacherId || teacher.teacher_id_code).filter(Boolean),
-  );
-  const assignedLevels = Array.isArray(payload.assigned_levels) && payload.assigned_levels.length
-    ? payload.assigned_levels
-    : ["A1"];
-  const teacher = {
-    fullName: payload.full_name,
-    displayName: payload.full_name,
-    teacherId,
-    email,
-    password: payload.password,
-    assignedLevels,
-    createdAt: new Date().toISOString(),
-  };
-
-  writeLocalList("portal_teachers", [...existing, teacher]);
-  return {
-    teacher_id_code: teacherId,
-    assigned_levels: assignedLevels,
-    full_name: teacher.fullName,
-    email: teacher.email,
-  };
-};
-
-const mirrorLocalTeacherAccount = (payload: any, teacherId?: string) => {
-  const existing = readLocalList("portal_teachers");
-  const email = String(payload.email || "").trim().toLowerCase();
-  const existingIndex = existing.findIndex((teacher: any) => String(teacher.email || "").toLowerCase() === email);
-  const current = existingIndex >= 0 ? existing[existingIndex] : {};
-  const assignedLevels = Array.isArray(payload.assigned_levels) && payload.assigned_levels.length
-    ? payload.assigned_levels
-    : current.assignedLevels || current.assigned_levels || ["A1"];
-  // No `password` field here either — see the matching comment in
-  // mirrorLocalStudentAccount above; localTeachersForAdmin() never reads it.
-  const teacher = {
-    ...current,
-    fullName: payload.full_name || current.fullName || current.full_name || current.name,
-    displayName: payload.full_name || current.displayName || current.display_name || current.name,
-    teacherId: teacherId || current.teacherId || current.teacher_id_code || generateLocalCode(
-      "TUT",
-      existing.map((record: any) => record.teacherId || record.teacher_id_code).filter(Boolean),
-    ),
-    email,
-    password: undefined,
-    assignedLevels,
-    createdAt: current.createdAt || current.created_at || new Date().toISOString(),
-  };
-
-  if (existingIndex >= 0) {
-    existing[existingIndex] = teacher;
-  } else {
-    existing.push(teacher);
-  }
-  writeLocalList("portal_teachers", existing);
-  return teacher;
-};
-
-const localTeacherProgressForAdmin = () =>
-  localTeachersForAdmin().map((teacher: any) => ({
-    teacher_id: teacher.teacher_id_code,
-    teacher_name: teacher.name,
-    email: teacher.email,
-    assigned_levels: teacher.assigned_levels || ["A1"],
-    total_hours: 0,
-    classes_given: 0,
-    attendance: {
-      present: 0,
-      late: 0,
-      absent: 0,
-      rate: 100,
-    },
-    recent_sessions: [],
-  }));
 
 export default function AdminDashboard({
   onExit,
@@ -330,11 +111,6 @@ export default function AdminDashboard({
   const [replaceAltText, setReplaceAltText] = useState("");
   const [dragging, setDragging] = useState(false);
 
-  // Migration UI state
-  const [migrationFile, setMigrationFile] = useState<File | null>(null);
-  const [migrationPreviewCount, setMigrationPreviewCount] = useState<number | null>(null);
-  const [migrationResult, setMigrationResult] = useState<any | null>(null);
-  const [migrating, setMigrating] = useState(false);
 
   // Students' @iseroestar.com Google accounts
   type GoogleAccountStatus = {
@@ -576,6 +352,17 @@ export default function AdminDashboard({
   const [peopleStudents, setPeopleStudents] = useState<any[]>([]);
   const [peopleTeachers, setPeopleTeachers] = useState<any[]>([]);
   const [peopleMessage, setPeopleMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  // Set when the server can't be reached; the page then says so instead of
+  // showing old or made-up lists.
+  const [peopleLoadError, setPeopleLoadError] = useState(false);
+
+  // Students table: search, filter by group, edit, move, (de)activate.
+  const [studentSearch, setStudentSearch] = useState("");
+  const [studentGroupFilter, setStudentGroupFilter] = useState("all");
+  const [showInactive, setShowInactive] = useState(false);
+  const [editingStudent, setEditingStudent] = useState<any | null>(null);
+  const [studentSaving, setStudentSaving] = useState(false);
+  const [studentTableMessage, setStudentTableMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [creatingStudent, setCreatingStudent] = useState(false);
   const [creatingTeacher, setCreatingTeacher] = useState(false);
 
@@ -630,7 +417,7 @@ export default function AdminDashboard({
         return res.json();
       })
       .then((data) => setTeacherProgress(Array.isArray(data) ? data : []))
-      .catch(() => setTeacherProgress(localTeacherProgressForAdmin()));
+      .catch(() => setPeopleLoadError(true));
   }, []);
 
   const loadPeople = () => {
@@ -639,8 +426,11 @@ export default function AdminDashboard({
         if (!res.ok) throw new Error(`students ${res.status}`);
         return res.json();
       })
-      .then((data) => setPeopleStudents(Array.isArray(data) ? data : []))
-      .catch(() => setPeopleStudents(localStudentsForAdmin()));
+      .then((data) => {
+        setPeopleStudents(Array.isArray(data) ? data : []);
+        setPeopleLoadError(false);
+      })
+      .catch(() => setPeopleLoadError(true));
 
     fetch("/api/admin/teachers", { headers: adminHeaders })
       .then((res) => {
@@ -648,7 +438,7 @@ export default function AdminDashboard({
         return res.json();
       })
       .then((data) => setPeopleTeachers(Array.isArray(data) ? data : []))
-      .catch(() => setPeopleTeachers(localTeachersForAdmin()));
+      .catch(() => setPeopleLoadError(true));
   };
 
   const loadTeacherProgress = () => {
@@ -658,12 +448,73 @@ export default function AdminDashboard({
         return res.json();
       })
       .then((data) => setTeacherProgress(Array.isArray(data) ? data : []))
-      .catch(() => setTeacherProgress(localTeacherProgressForAdmin()));
+      .catch(() => setPeopleLoadError(true));
   };
 
   useEffect(() => {
     loadPeople();
   }, []);
+
+  const studentGroupKey = (student: any) => {
+    const level = String(student.course_level || "").match(/\b(A1|A2|B1)\b/i)?.[1]?.toUpperCase() || "?";
+    const group = String(student.class_group || "").match(/(\d+)/)?.[1] || "1";
+    return `${level}G${group}`;
+  };
+  const studentGroupName = (student: any) => {
+    const match = CLASS_GROUPS.find((g) => g.code === studentGroupKey(student));
+    return match ? `${match.level} ${d("Group", "Grupo")} ${match.group} – ${classGroupLabel(match)}` : `${student.course_level} ${student.class_group}`;
+  };
+  const visibleStudents = peopleStudents.filter((student) => {
+    if (!showInactive && student.active === false) return false;
+    if (studentGroupFilter !== "all" && studentGroupKey(student) !== studentGroupFilter) return false;
+    const query = studentSearch.trim().toLowerCase();
+    if (!query) return true;
+    return [student.full_name, student.email, student.student_id_code, student.phone_number]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
+  const inactiveCount = peopleStudents.filter((student) => student.active === false).length;
+
+  const saveStudent = async (code: string, changes: Record<string, any>, successText: string) => {
+    setStudentSaving(true);
+    setStudentTableMessage(null);
+    const response = await fetch(`/api/admin/students/${encodeURIComponent(code)}`, {
+      method: "PUT",
+      headers: adminJsonHeaders,
+      body: JSON.stringify(changes)
+    }).catch(() => null);
+    const payload = response ? await readApiPayload(response) : null;
+    setStudentSaving(false);
+    if (!response?.ok) {
+      setStudentTableMessage({ type: "error", text: apiErrorMessage(payload, d("The change could not be saved. Try again.", "No se pudo guardar el cambio. Inténtalo de nuevo."), response?.status || 0) });
+      return false;
+    }
+    setPeopleStudents((list) => list.map((student) => (student.student_id_code === code ? payload : student)));
+    setStudentTableMessage({ type: "success", text: successText });
+    return true;
+  };
+
+  const handleSaveEditedStudent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudent || studentSaving) return;
+    const saved = await saveStudent(editingStudent.student_id_code, {
+      full_name: editingStudent.full_name.trim(),
+      phone_number: editingStudent.phone_number || "",
+      course_level: editingStudent.course_level,
+      class_group: editingStudent.class_group
+    }, d(`Saved ${editingStudent.full_name}.`, `Guardado ${editingStudent.full_name}.`));
+    if (saved) setEditingStudent(null);
+  };
+
+  const handleToggleStudentActive = async (student: any) => {
+    const deactivate = student.active !== false;
+    const question = deactivate
+      ? d(`Deactivate ${student.full_name}? They won't be able to sign in and will leave their group's lists. Their grades and work are kept, and you can reactivate them later.`, `¿Desactivar a ${student.full_name}? No podrá iniciar sesión y saldrá de las listas de su grupo. Sus notas y trabajos se conservan y puedes reactivarlo más tarde.`)
+      : d(`Reactivate ${student.full_name}? They can sign in again.`, `¿Reactivar a ${student.full_name}? Podrá iniciar sesión de nuevo.`);
+    if (!window.confirm(question)) return;
+    await saveStudent(student.student_id_code, { active: !deactivate }, deactivate
+      ? d(`${student.full_name} is now inactive.`, `${student.full_name} ahora está inactivo.`)
+      : d(`${student.full_name} is active again.`, `${student.full_name} está activo de nuevo.`));
+  };
 
   const handleCreateStudentAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -688,45 +539,18 @@ export default function AdminDashboard({
         body: JSON.stringify(studentPayload)
       });
 
-      let payload = await readApiPayload(response);
-      let createdViaFallback = false;
-      let createdViaBrowserFallback = false;
-
-      if (response.status === 404) {
-        const fallbackResponse = await fetch("/api/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(studentPayload)
-        });
-        payload = await readApiPayload(fallbackResponse);
-        createdViaFallback = fallbackResponse.ok;
-        if (!fallbackResponse.ok) {
-          if (fallbackResponse.status === 404) {
-            payload = createLocalStudentAccount(studentPayload);
-            createdViaBrowserFallback = true;
-          } else {
-            throw new Error(apiErrorMessage(payload, "Unable to create student account.", fallbackResponse.status));
-          }
-        }
-      } else if (!response.ok) {
+      const payload = await readApiPayload(response);
+      if (!response.ok) {
         if (response.status === 400 && isDuplicateAccountError(payload)) {
-          // An account with this email already exists in the real database.
-          // Earlier this silently mirrored the new password into local
-          // browser storage and reported success, without ever touching the
-          // real account — meaning the "new" password never actually worked
-          // for login. Surface it as the error it actually is instead.
           throw new Error(
             d(
-              "An account with this email already exists. Use the student's original password, or change it via the database — this form cannot reset an existing account's password.",
-              "Ya existe una cuenta con este correo. Usa la contraseña original del estudiante, o cámbiala a través de la base de datos — este formulario no puede restablecer la contraseña de una cuenta existente."
+              "An account with this email already exists. To give them a new password, use Reset a Password below.",
+              "Ya existe una cuenta con este correo. Para darle una nueva contraseña, usa Restablecer una Contraseña más abajo."
             )
           );
-        } else {
-          throw new Error(apiErrorMessage(payload, "Unable to create student account.", response.status));
         }
+        throw new Error(apiErrorMessage(payload, "Unable to create student account.", response.status));
       }
-
-      mirrorLocalStudentAccount(studentPayload, payload.student_id_code);
 
       const emailNote = payload.welcome_email_sent === true
         ? d(` Welcome email with their login details sent to ${studentPayload.email}.`, ` Correo de bienvenida con sus datos de acceso enviado a ${studentPayload.email}.`)
@@ -736,8 +560,8 @@ export default function AdminDashboard({
       setPeopleMessage({
         type: "success",
         text: d(
-          `Student created. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (browser fallback)" : createdViaFallback ? " (registration fallback)" : ""}.`,
-          `Estudiante creado. ID: ${payload.student_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : createdViaFallback ? " (registro alternativo)" : ""}.`
+          `Student created. ID: ${payload.student_id_code}.`,
+          `Estudiante creado. ID: ${payload.student_id_code}.`
         ) + emailNote
       });
       setStudentFullName("");
@@ -773,44 +597,24 @@ export default function AdminDashboard({
           assigned_levels: assignedLevels.length ? assignedLevels : ["A1"]
         })
       });
-      let payload = await readApiPayload(response);
-      let createdViaBrowserFallback = false;
+      const payload = await readApiPayload(response);
       if (!response.ok) {
-        if (response.status === 404) {
-          payload = createLocalTeacherAccount({
-            full_name: teacherFullName,
-            email: teacherEmail,
-            password: teacherPassword,
-            assigned_levels: assignedLevels.length ? assignedLevels : ["A1"]
-          });
-          createdViaBrowserFallback = true;
-        } else if (response.status === 400 && isDuplicateAccountError(payload)) {
-          // See the matching comment in handleCreateStudentAccount: this used
-          // to silently mirror the new password to local storage and report
-          // success without ever touching the real account.
+        if (response.status === 400 && isDuplicateAccountError(payload)) {
           throw new Error(
             d(
-              "An account with this email already exists. Use the tutor's original password, or change it via the database — this form cannot reset an existing account's password.",
-              "Ya existe una cuenta con este correo. Usa la contraseña original del tutor, o cámbiala a través de la base de datos — este formulario no puede restablecer la contraseña de una cuenta existente."
+              "An account with this email already exists. To give them a new password, use Reset a Password below.",
+              "Ya existe una cuenta con este correo. Para darle una nueva contraseña, usa Restablecer una Contraseña más abajo."
             )
           );
-        } else {
-          throw new Error(apiErrorMessage(payload, "Unable to create teacher account.", response.status));
         }
+        throw new Error(apiErrorMessage(payload, "Unable to create teacher account.", response.status));
       }
-
-      mirrorLocalTeacherAccount({
-        full_name: teacherFullName,
-        email: teacherEmail,
-        password: teacherPassword,
-        assigned_levels: assignedLevels.length ? assignedLevels : ["A1"]
-      }, payload.teacher_id_code);
 
       setPeopleMessage({
         type: "success",
         text: d(
-          `Teacher created. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (browser fallback)" : ""}`,
-          `Profesor creado. ID: ${payload.teacher_id_code}${createdViaBrowserFallback ? " (respaldo del navegador)" : ""}`
+          `Teacher created. ID: ${payload.teacher_id_code}`,
+          `Profesor creado. ID: ${payload.teacher_id_code}`
         )
       });
       setTeacherFullName("");
@@ -848,7 +652,7 @@ export default function AdminDashboard({
   // placeholders, so a fresh install correctly shows zeros instead of a
   // fake baseline.
   const telemetryStats = [
-    { title: d("Total Enrolled Students", "Estudiantes Inscritos Totales"), value: d(`${peopleStudents.length} active`, `${peopleStudents.length} activos`), icon: Users, change: d("Server-side enrollment", "Inscripción desde servidor"), color: "text-teal-600" },
+    { title: d("Total Enrolled Students", "Estudiantes Inscritos Totales"), value: d(`${peopleStudents.length - inactiveCount} active`, `${peopleStudents.length - inactiveCount} activos`), icon: Users, change: d("Server-side enrollment", "Inscripción desde servidor"), color: "text-teal-600" },
     { title: d("Avg Class Roster Attendance", "Asistencia Promedio de Clase"), value: `${teacherAttendanceAverage}%`, icon: Award, change: d("Goal: >90%", "Meta: >90%"), color: "text-emerald-600" },
     { title: d("Live Classes Completed", "Clases en Vivo Completadas"), value: d(`${totalCompletedClasses} sessions`, `${totalCompletedClasses} sesiones`), icon: Layers, change: d(`${totalLiveClassesNow} live now`, `${totalLiveClassesNow} en vivo ahora`), color: "text-indigo-600" },
     { title: d("Tutor Hours Logged", "Horas de Tutor Registradas"), value: `${totalTeacherHours}h`, icon: Clock, change: d(`${teacherAttendanceAverage}% tutor attendance`, `${teacherAttendanceAverage}% asistencia tutor`), color: "text-orange-500" }
@@ -1053,6 +857,15 @@ export default function AdminDashboard({
           </div>
         </div>
 
+        {peopleLoadError && (
+          <div role="alert" className="p-3 rounded-2xl text-xs font-semibold border bg-amber-50 text-amber-800 border-amber-200 flex flex-wrap items-center justify-between gap-2">
+            <span>{d("Some people data could not be loaded from the server, so these numbers and lists may be incomplete.", "No se pudieron cargar algunos datos del servidor, así que estas cifras y listas pueden estar incompletas.")}</span>
+            <button type="button" onClick={() => { loadPeople(); loadTeacherProgress(); }} className="px-3 py-1 rounded-lg bg-white border border-amber-300 font-bold cursor-pointer">
+              {d("Try again", "Reintentar")}
+            </button>
+          </div>
+        )}
+
         {peopleMessage && (
           <div className={`p-3 rounded-2xl text-xs font-semibold border ${
             peopleMessage.type === "success"
@@ -1250,6 +1063,168 @@ export default function AdminDashboard({
             </div>
           )}
         </form>
+      </div>
+
+      {/* Students table */}
+      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4" id="admin-students-table">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider flex items-center">
+              <Users size={16} className="text-teal-600 mr-1.5" />
+              <span>{d("Students", "Estudiantes")}</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {d("Everyone enrolled. Edit details, move someone to another group, or deactivate a student who has left.", "Todos los inscritos. Edita datos, cambia a alguien de grupo o desactiva a un estudiante que se fue.")}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <input
+              type="search"
+              placeholder={d("Search name, email, code...", "Buscar nombre, correo, código...")}
+              value={studentSearch}
+              onChange={(e) => setStudentSearch(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden w-full sm:w-56"
+            />
+            <select
+              value={studentGroupFilter}
+              onChange={(e) => setStudentGroupFilter(e.target.value)}
+              className="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-hidden"
+            >
+              <option value="all">{d("All groups", "Todos los grupos")}</option>
+              {CLASS_GROUPS.map((g) => (
+                <option key={g.code} value={g.code}>{`${g.level} ${d("Group", "Grupo")} ${g.group} – ${classGroupLabel(g)}`}</option>
+              ))}
+            </select>
+            {inactiveCount > 0 && (
+              <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+                {d(`Show inactive (${inactiveCount})`, `Mostrar inactivos (${inactiveCount})`)}
+              </label>
+            )}
+          </div>
+        </div>
+
+        {studentTableMessage && (
+          <p role={studentTableMessage.type === "error" ? "alert" : "status"} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${studentTableMessage.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+            {studentTableMessage.text}
+          </p>
+        )}
+
+        {editingStudent && (
+          <form onSubmit={handleSaveEditedStudent} className="p-4 rounded-2xl border border-orange-200 bg-orange-50/40 space-y-3">
+            <h4 className="text-[11px] font-black text-slate-800 uppercase tracking-wider">
+              {d("Edit", "Editar")} {editingStudent.student_id_code}
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <input
+                type="text"
+                required
+                minLength={2}
+                maxLength={120}
+                placeholder={d("Full name", "Nombre completo")}
+                value={editingStudent.full_name}
+                onChange={(e) => setEditingStudent({ ...editingStudent, full_name: e.target.value })}
+                className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+              />
+              <input
+                type="tel"
+                maxLength={40}
+                placeholder={d("Phone (optional)", "Teléfono (opcional)")}
+                value={editingStudent.phone_number || ""}
+                onChange={(e) => setEditingStudent({ ...editingStudent, phone_number: e.target.value })}
+                className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-hidden"
+              />
+              <select
+                value={editingStudent.course_level}
+                onChange={(e) => setEditingStudent({ ...editingStudent, course_level: e.target.value, class_group: groupOptionsForLevel(e.target.value)[0].value })}
+                className="bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-hidden"
+              >
+                {["A1", "A2", "B1"].map((level) => <option key={level} value={level}>{level}</option>)}
+              </select>
+              <select
+                value={editingStudent.class_group}
+                onChange={(e) => setEditingStudent({ ...editingStudent, class_group: e.target.value })}
+                className="bg-white border border-slate-200 rounded-xl px-2.5 py-2 text-xs font-bold text-slate-700 focus:outline-hidden"
+              >
+                {!groupOptionsForLevel(editingStudent.course_level).some((o) => o.value === editingStudent.class_group) && (
+                  <option value={editingStudent.class_group}>{editingStudent.class_group}</option>
+                )}
+                {groupOptionsForLevel(editingStudent.course_level).map((option) => (
+                  <option key={option.value} value={option.value}>{`${option.value} – ${option.label}`}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button type="submit" disabled={studentSaving} className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 disabled:opacity-60 cursor-pointer">
+                {studentSaving ? d("Saving...", "Guardando...") : d("Save changes", "Guardar cambios")}
+              </button>
+              <button type="button" onClick={() => setEditingStudent(null)} className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                {d("Cancel", "Cancelar")}
+              </button>
+            </div>
+          </form>
+        )}
+
+        <div className="overflow-x-auto max-h-[480px] overflow-y-auto border border-slate-100 rounded-2xl">
+          <table className="w-full text-xs text-left">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500 sticky top-0">
+              <tr>
+                <th className="px-3 py-2 font-bold">{d("Student", "Estudiante")}</th>
+                <th className="px-3 py-2 font-bold">{d("Code", "Código")}</th>
+                <th className="px-3 py-2 font-bold">{d("Group", "Grupo")}</th>
+                <th className="px-3 py-2 font-bold">{d("Joined", "Se unió")}</th>
+                <th className="px-3 py-2 font-bold text-right">{d("Actions", "Acciones")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleStudents.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                    {peopleStudents.length === 0 ? d("No students yet.", "Aún no hay estudiantes.") : d("No students match.", "Ningún estudiante coincide.")}
+                  </td>
+                </tr>
+              )}
+              {visibleStudents.map((student) => (
+                <tr key={student.student_id_code} className={`border-t border-slate-100 ${student.active === false ? "opacity-60" : ""}`}>
+                  <td className="px-3 py-2">
+                    <span className="block font-bold text-slate-800">
+                      {student.full_name}
+                      {student.active === false && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[9px] font-bold uppercase">{d("Inactive", "Inactivo")}</span>
+                      )}
+                    </span>
+                    <span className="block text-[10px] text-slate-400 font-mono">{student.email}{student.phone_number ? ` · ${student.phone_number}` : ""}</span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">{student.student_id_code}</td>
+                  <td className="px-3 py-2 text-slate-600">{studentGroupName(student)}</td>
+                  <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
+                    {student.registration_date ? new Date(student.registration_date).toLocaleDateString(lang === "ES" ? "es-ES" : "en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => { setStudentTableMessage(null); setEditingStudent({ ...student, phone_number: student.phone_number || "" }); }}
+                      className="px-2 py-1 rounded-lg text-[11px] font-bold text-orange-600 hover:bg-orange-50 cursor-pointer"
+                    >
+                      {d("Edit", "Editar")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={studentSaving}
+                      onClick={() => handleToggleStudentActive(student)}
+                      className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${student.active === false ? "text-emerald-700 hover:bg-emerald-50" : "text-rose-600 hover:bg-rose-50"}`}
+                    >
+                      {student.active === false ? d("Reactivate", "Reactivar") : d("Deactivate", "Desactivar")}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-slate-400">
+          {d(`Showing ${visibleStudents.length} of ${peopleStudents.length} students.`, `Mostrando ${visibleStudents.length} de ${peopleStudents.length} estudiantes.`)}
+        </p>
       </div>
 
       <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-4">
@@ -1966,75 +1941,6 @@ export default function AdminDashboard({
         </div>
       </div>
 
-      {/* Migration panel - admin-only: import portal_students JSON and POST to backend */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs mt-6">
-        <div className="pb-3 border-b border-slate-100 mb-4">
-          <h3 className="font-sans font-black text-slate-900 text-xs uppercase tracking-wider">{d("Migrate Local Students (admin)", "Migrar Estudiantes Locales (admin)")}</h3>
-        </div>
-
-        <div className="space-y-3">
-          <p className="text-xs text-slate-600">{d("Upload an exported `portal_students` JSON file from the frontend localStorage to create User + StudentProfile records in the database.", "Sube un archivo JSON exportado `portal_students` desde localStorage del frontend para crear registros de User + StudentProfile en la base de datos.")}</p>
-
-          <input
-            type="file"
-            accept="application/json"
-            onChange={async (e) => {
-              setMigrationResult(null);
-              const f = e.target.files?.[0] || null;
-              setMigrationFile(f);
-              if (!f) {
-                setMigrationPreviewCount(null);
-                return;
-              }
-              try {
-                const txt = await f.text();
-                const parsed = JSON.parse(txt);
-                setMigrationPreviewCount(Array.isArray(parsed) ? parsed.length : 1);
-              } catch (err) {
-                setMigrationPreviewCount(null);
-              }
-            }}
-          />
-
-          <div className="flex items-center space-x-3">
-            <button
-              disabled={!migrationFile || migrating}
-              onClick={async () => {
-                if (!migrationFile) return;
-                setMigrating(true);
-                setMigrationResult(null);
-                try {
-                  const txt = await migrationFile.text();
-                  const payload = JSON.parse(txt);
-                  const res = await fetch('/api/migrate-students', {
-                    method: 'POST',
-                    headers: adminJsonHeaders,
-                    credentials: 'include',
-                    body: JSON.stringify(payload)
-                  });
-                  const data = await res.json().catch(() => ({}));
-                  setMigrationResult({ status: res.status, data });
-                } catch (err) {
-                  setMigrationResult({ error: String(err) });
-                } finally {
-                  setMigrating(false);
-                }
-              }}
-              className={`py-2 px-3 rounded-xl font-bold text-sm ${migrationFile ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400'}`}
-            >
-              {migrating ? d('Migrating...', 'Migrando...') : d('Run Migration', 'Ejecutar Migración')}
-            </button>
-
-            <div className="text-xs text-slate-500">
-              {migrationPreviewCount !== null ? `${migrationPreviewCount} ${d('records selected', 'registros seleccionados')}` : d('No file selected', 'Ningún archivo seleccionado')}
-            </div>
-          </div>
-
-          {migrationResult && (
-            <pre className="mt-3 p-3 bg-slate-50 border rounded text-xs text-slate-700 overflow-auto">{JSON.stringify(migrationResult, null, 2)}</pre>
-          )}
-        </div>
-      </div>
     </div>
   );
 }
