@@ -45,3 +45,11 @@ class AdminStudentTests(_LiveSessionTestCase):
         self.assertEqual(self._update(code, {"active": False}, credentials=TUTOR).status_code, 403)
         self.assertEqual(self._update(code, {"course_level": "C2"}).status_code, 422)
         self.assertEqual(self._update("NOPE-000", {"active": False}).status_code, 404)
+
+
+class TutorRosterCertificateTests(_LiveSessionTestCase):
+    def test_roster_includes_level_and_start_date_for_certificates(self):
+        roster = self.client.get("/api/tutor/group-attendance?course_level=A1&class_group=Group%201", headers=self._headers(TUTOR)).json()
+        demo = next(s for s in roster["students"] if s["full_name"])
+        self.assertEqual(demo["course_level"], "A1")
+        self.assertTrue(demo["registration_date"])

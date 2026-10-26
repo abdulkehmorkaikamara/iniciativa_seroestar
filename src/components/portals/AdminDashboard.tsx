@@ -23,6 +23,7 @@ import {
   MessageSquare
 } from "lucide-react";
 import { shrinkPhoto } from "../../shrinkPhoto";
+import CertificateButton from "./CertificateButton";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -1210,6 +1211,12 @@ export default function AdminDashboard({
                     >
                       {d("Edit", "Editar")}
                     </button>
+                    <CertificateButton
+                      student={student}
+                      school={(() => { const g = CLASS_GROUPS.find((c) => c.code === studentGroupKey(student)); return g ? classGroupLabel(g) : undefined; })()}
+                      lang={lang === "ES" ? "ES" : "EN"}
+                      className="px-2 py-1 rounded-lg text-[11px] font-bold text-[#0B4C9C] hover:bg-blue-50 cursor-pointer"
+                    />
                     <button
                       type="button"
                       disabled={studentSaving}
