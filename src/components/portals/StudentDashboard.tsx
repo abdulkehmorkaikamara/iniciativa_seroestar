@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Inbox
 } from "lucide-react";
+import ChangePasswordButton from "./ChangePasswordButton";
 import { shrinkPhoto } from "../../shrinkPhoto";
 
 import { TRANSLATIONS } from "../../translations";
@@ -62,58 +63,16 @@ type WelcomeLetterSession = {
   session: string;
 };
 
+// A group's welcome letter, from /api/welcome-letter (the admin edits the
+// dates and class times); dated the day the student joined the academy.
 type WelcomeLetterConfig = {
-  level: "A1" | "A2";
-  group: 1 | 2;
+  level: string;
+  group: number;
   durationWeeks: number;
   courseDates: string;
   sessions: WelcomeLetterSession[];
+  letterDate: Date | null;
 };
-
-const WELCOME_LETTERS: Record<string, WelcomeLetterConfig> = {
-  "A1-G1": {
-    level: "A1",
-    group: 1,
-    durationWeeks: 6,
-    courseDates: "19 May to 27 June 2026",
-    sessions: [
-      { time: "19:00-20:00", day: "Tuesday", session: "Grammar-Lab" },
-      { time: "19:00-20:00", day: "Thursday", session: "Vocabulary & Conversation" },
-      { time: "10:00-11:00", day: "Saturday", session: "Listening Practice. Review" },
-      { time: "11:00-12:00", day: "Saturday", session: "Final Project Coaching (Week 3-6)" },
-    ],
-  },
-  "A1-G2": {
-    level: "A1",
-    group: 2,
-    durationWeeks: 6,
-    courseDates: "25 May to 04 July 2026",
-    sessions: [
-      { time: "19:00-20:00", day: "Monday", session: "Grammar-Lab" },
-      { time: "19:00-20:00", day: "Wednesday", session: "Vocabulary & Conversation" },
-      { time: "08:00-09:00", day: "Saturday", session: "Listening Practice. Review" },
-      { time: "09:00-10:00", day: "Saturday", session: "Final Project Coaching (Week 3-6)" },
-    ],
-  },
-  "A2-G1": {
-    level: "A2",
-    group: 1,
-    durationWeeks: 8,
-    courseDates: "11 May to 04 July 2026",
-    sessions: [
-      { time: "19:00-20:00", day: "Tuesday", session: "Grammar-Lab" },
-      { time: "19:00-20:00", day: "Thursday", session: "Vocabulary & Conversation" },
-      { time: "12:00-13:00", day: "Saturday", session: "Listening Practice. Review" },
-      { time: "13:00-14:00", day: "Saturday", session: "Final Project Coaching (Week 5-8)" },
-    ],
-  },
-};
-
-function getWelcomeLetter(courseLevel: string, classGroup: string) {
-  const classGroupInfo = findClassGroup(courseLevel, classGroup);
-  if (!classGroupInfo) return null;
-  return WELCOME_LETTERS[`${classGroupInfo.level}-G${classGroupInfo.group}`] || null;
-}
 
 // Earlier versions kept a student's notes and announcement state in this
 // browser only. moveLocalOnce hands what is stored under `key` to `upload`,
@@ -161,7 +120,25 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     classGroup: "Morning Group",
     learningMode: "Online"
   };
-  const welcomeLetter = getWelcomeLetter(student.courseLevel, student.classGroup);
+  const [welcomeLetter, setWelcomeLetter] = useState<WelcomeLetterConfig | null>(null);
+  useEffect(() => {
+    fetch("/api/welcome-letter")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!data || !Array.isArray(data.sessions)) return setWelcomeLetter(null);
+        const joined = data.letter_date ? new Date(data.letter_date) : null;
+        setWelcomeLetter({
+          level: data.level,
+          group: data.group_number,
+          durationWeeks: data.duration_weeks,
+          courseDates: data.course_dates,
+          sessions: data.sessions,
+          letterDate: joined && !Number.isNaN(joined.getTime()) ? joined : null,
+        });
+      })
+      .catch(() => setWelcomeLetter(null));
+  }, [student.studentIdCode]);
+  const letterDateText = (welcomeLetter?.letterDate || new Date()).toLocaleDateString(lang === "ES" ? "es-ES" : "en-GB", { day: "numeric", month: "long", year: "numeric" });
   const classGroupInfo = findClassGroup(student.courseLevel, student.classGroup);
   // Students only see the tutor assigned to their group.
   const groupTutorEmail = (classGroupInfo?.tutorEmail || "ivoneth@seroestar.com").toLowerCase();
@@ -725,6 +702,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
           >
             {d("Ask Virtual Chatbot", "Preguntar al Chatbot Virtual")}
           </button>
+          <ChangePasswordButton
+            lang={lang}
+            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer text-white"
+          />
           <button
             onClick={onExit}
             className="px-5 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer text-white"
@@ -1742,7 +1723,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                         </p>
                       </div>
 
-                      <p className="text-xs font-bold text-slate-400 font-mono">Student ID: {student.studentIdCode}</p>
+                      <div className="flex flex-wrap justify-between gap-2 text-xs font-bold text-slate-400 font-mono">
+                        <span>Student ID: {student.studentIdCode}</span>
+                        <span>Freetown, {letterDateText}</span>
+                      </div>
 
                       <p className="text-xs sm:text-sm leading-relaxed">
                         Dear {student.fullName},
@@ -1852,7 +1836,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                     <span>+232 72 057646 | seroestar@icloud.com</span>
                   </div>
                   <div className="text-right">
-                    <span className="font-mono">{d("May 2026 Edition", "Edición de Mayo 2026")}</span>
+                    <span className="font-mono">{letterDateText}</span>
                     <span className="block text-[9px] text-slate-300 font-mono">Page {welcomeLetterPage} of 2</span>
                   </div>
                 </div>
@@ -1862,7 +1846,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
 
             {/* Modal Actions */}
             <div className="bg-slate-50 px-6 py-4 border-t border-slate-200 flex items-center justify-between">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{d("Iniciativa Ser o Estar © 2026", "Iniciativa Ser o Estar © 2026")}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Iniciativa Ser o Estar © {(welcomeLetter.letterDate || new Date()).getFullYear()}</span>
               
               <div className="flex space-x-2">
                 <button

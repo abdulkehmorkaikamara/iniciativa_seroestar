@@ -20,6 +20,7 @@ import {
   BookOpen,
   ExternalLink
 } from "lucide-react";
+import ChangePasswordButton from "./ChangePasswordButton";
 import LiveVideoRoom from "../LiveVideoRoom";
 import MessagesPanel from "./MessagesPanel";
 import { useLiveChat } from "../useLiveChat";
@@ -874,13 +875,19 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
             )}
           </p>
         </div>
-        <button
-          onClick={onExit}
-          className="px-5 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer shrink-0 scroll-smooth relative z-10"
-        >
-          <LogOut size={14} className="mr-2" />
-          <span>{d("Exit Portal", "Salir del Portal")}</span>
-        </button>
+        <div className="flex flex-col sm:flex-row gap-3 shrink-0 relative z-10">
+          <ChangePasswordButton
+            lang={lang}
+            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer"
+          />
+          <button
+            onClick={onExit}
+            className="px-5 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 border border-white/20 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer shrink-0 scroll-smooth"
+          >
+            <LogOut size={14} className="mr-2" />
+            <span>{d("Exit Portal", "Salir del Portal")}</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">

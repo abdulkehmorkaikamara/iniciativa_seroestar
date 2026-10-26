@@ -135,7 +135,8 @@ def _email_configured() -> bool:
     return bool(os.getenv("SMTP_HOST", "").strip() and user and os.getenv("SMTP_PASS", "") and (os.getenv("SMTP_FROM_EMAIL", "").strip() or user))
 
 
-def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
+def _send_email(recipient: str, subject: str, text_body: str, html_body: str) -> bool:
+    """Send one email through the SMTP_* settings. False when email isn't set up."""
     smtp_host = os.getenv("SMTP_HOST", "").strip()
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER", "").strip()
@@ -145,32 +146,12 @@ def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -
     if not smtp_host or not smtp_user or not smtp_password or not from_email:
         return False
 
-    safe_name = html.escape(full_name or "User")
-    safe_url = html.escape(reset_url, quote=True)
     message = EmailMessage()
-    message["Subject"] = "Reset your Iniciativa Ser o Estar password"
+    message["Subject"] = subject
     message["From"] = f"{from_name} <{from_email}>"
     message["To"] = recipient
-    message.set_content(
-        f"Hello {full_name or 'User'},\n\n"
-        "We received a request to reset your Iniciativa Ser o Estar account password.\n"
-        f"Open this link within 20 minutes: {reset_url}\n\n"
-        "If you did not request this change, you can safely ignore this email.\n\n"
-        "Iniciativa Ser o Estar"
-    )
-    message.add_alternative(
-        f"""
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
-          <h2 style="color:#0f766e">Reset your password</h2>
-          <p>Hello {safe_name},</p>
-          <p>We received a request to reset your Iniciativa Ser o Estar account password.</p>
-          <p><a href="{safe_url}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Create a new password</a></p>
-          <p>This secure link expires in 20 minutes and can only be used once.</p>
-          <p style="color:#64748b;font-size:13px">If you did not request this change, you can safely ignore this email.</p>
-        </div>
-        """,
-        subtype="html",
-    )
+    message.set_content(text_body)
+    message.add_alternative(html_body, subtype="html")
 
     if smtp_port == 465:
         with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=12, context=ssl.create_default_context()) as smtp:
@@ -184,6 +165,68 @@ def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -
             smtp.login(smtp_user, smtp_password)
             smtp.send_message(message)
     return True
+
+
+def _send_password_reset_email(recipient: str, full_name: str, reset_url: str) -> bool:
+    safe_name = html.escape(full_name or "User")
+    safe_url = html.escape(reset_url, quote=True)
+    return _send_email(
+        recipient,
+        "Reset your Iniciativa Ser o Estar password",
+        f"Hello {full_name or 'User'},\n\n"
+        "We received a request to reset your Iniciativa Ser o Estar account password.\n"
+        f"Open this link within 20 minutes: {reset_url}\n\n"
+        "If you did not request this change, you can safely ignore this email.\n\n"
+        "Iniciativa Ser o Estar",
+        f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
+          <h2 style="color:#0f766e">Reset your password</h2>
+          <p>Hello {safe_name},</p>
+          <p>We received a request to reset your Iniciativa Ser o Estar account password.</p>
+          <p><a href="{safe_url}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Create a new password</a></p>
+          <p>This secure link expires in 20 minutes and can only be used once.</p>
+          <p style="color:#64748b;font-size:13px">If you did not request this change, you can safely ignore this email.</p>
+        </div>
+        """,
+    )
+
+
+def _send_student_welcome_email(recipient: str, full_name: str, student_code: str, password: str, site_url: str) -> bool:
+    """Login details for a student the admin just added."""
+    name = full_name or "Student"
+    safe = {key: html.escape(value, quote=True) for key, value in {
+        "name": name, "email": recipient, "code": student_code, "password": password, "url": site_url,
+    }.items()}
+    return _send_email(
+        recipient,
+        "Welcome to Iniciativa Ser o Estar – your student portal login",
+        f"Hello {name},\n\n"
+        "Welcome to Iniciativa Ser o Estar! Your student portal account is ready.\n\n"
+        f"Website: {site_url}\n"
+        f"Login email: {recipient}\n"
+        f"Temporary password: {password}\n"
+        f"Student code: {student_code}\n\n"
+        "Open the website, choose the Student portal and sign in. Your welcome letter, class times and "
+        "materials are inside. Please change your password after you sign in (Change password, in the portal).\n\n"
+        "Questions? WhatsApp +232 72 057646.\n\n"
+        "¡Nos vemos pronto!\nIniciativa Ser o Estar",
+        f"""
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;color:#172033">
+          <h2 style="color:#0f766e">Welcome to Iniciativa Ser o Estar!</h2>
+          <p>Hello {safe["name"]},</p>
+          <p>Your student portal account is ready.</p>
+          <table style="border-collapse:collapse;font-size:14px">
+            <tr><td style="padding:4px 12px 4px 0;color:#64748b">Login email</td><td><strong>{safe["email"]}</strong></td></tr>
+            <tr><td style="padding:4px 12px 4px 0;color:#64748b">Temporary password</td><td><strong style="font-family:monospace;font-size:15px">{safe["password"]}</strong></td></tr>
+            <tr><td style="padding:4px 12px 4px 0;color:#64748b">Student code</td><td><strong>{safe["code"]}</strong></td></tr>
+          </table>
+          <p><a href="{safe["url"]}" style="display:inline-block;background:#0f766e;color:white;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:bold">Open the student portal</a></p>
+          <p>Your welcome letter, class times and materials are inside. Please change your password after you sign in (<em>Change password</em>, in the portal).</p>
+          <p style="color:#64748b;font-size:13px">Questions? WhatsApp +232 72 057646.</p>
+          <p>¡Nos vemos pronto!<br>Iniciativa Ser o Estar</p>
+        </div>
+        """,
+    )
 
 
 def _password_reset_request_allowed(request: Request, email: str) -> bool:
@@ -864,7 +907,17 @@ def list_admin_students(request: Request, db: Session = Depends(get_db)):
 @app.post("/api/admin/students", response_model=schemas.StudentResponse)
 def create_admin_student(payload: schemas.AdminStudentCreate, request: Request, db: Session = Depends(get_db)):
     _require_admin(request)
-    return _create_student_account(payload, db, status_value=payload.status)
+    student = _create_student_account(payload, db, status_value=payload.status)
+    sent = False
+    try:
+        sent = _send_student_welcome_email(
+            student.user.email, student.user.full_name, student.student_id_code, payload.password, _password_reset_app_url(request)
+        )
+    except Exception as exc:
+        print(f"Welcome email delivery failed: {type(exc).__name__}")
+    response = schemas.StudentResponse.model_validate(student)
+    response.welcome_email_sent = sent
+    return response
 
 
 def _active_students(db: Session) -> list[models.StudentProfile]:
@@ -948,6 +1001,76 @@ def provision_google_accounts(payload: schemas.GoogleAccountProvisionRequest, re
             "temporary_password": password,
         })
     return {"created": created, "failed": failed, "remaining": max(len(pending) - len(created) - len(failed), 0)}
+
+
+@app.post("/api/me/password")
+def change_my_password(payload: schemas.PasswordChange, request: Request, db: Session = Depends(get_db)):
+    """Anyone signed in can change their own password by giving the current one."""
+    auth_payload = _request_auth_payload(request, set(roles.ALL_ROLES))
+    user = db.query(models.User).filter(models.User.id == auth_payload.get("id")).first()
+    if not user or not auth.verify_password(payload.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Your current password is not correct.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="Choose a new password that is different from the current one.")
+    user.hashed_password = auth.get_password_hash(payload.new_password)
+    db.commit()
+    return {"detail": "Password changed"}
+
+
+def _welcome_letter_response(letter: models.WelcomeLetter) -> dict:
+    try:
+        sessions = json.loads(letter.sessions or "[]")
+    except ValueError:
+        sessions = []
+    return {
+        "level": letter.level,
+        "group_number": letter.group_number,
+        "course_dates": letter.course_dates,
+        "duration_weeks": letter.duration_weeks,
+        "sessions": sessions,
+        "updated_at": letter.updated_at,
+    }
+
+
+@app.get("/api/welcome-letter")
+def my_welcome_letter(request: Request, db: Session = Depends(get_db)):
+    """The student's group letter, dated the day they joined the academy."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    letter = db.query(models.WelcomeLetter).filter(
+        models.WelcomeLetter.level == _course_level_code(student.course_level),
+        models.WelcomeLetter.group_number == group_number(student.class_group),
+    ).first()
+    if not letter:
+        raise HTTPException(status_code=404, detail="No welcome letter for this group yet.")
+    data = _welcome_letter_response(letter)
+    data["letter_date"] = student.registration_date
+    return data
+
+
+@app.get("/api/admin/welcome-letters")
+def admin_list_welcome_letters(request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    letters = db.query(models.WelcomeLetter).order_by(models.WelcomeLetter.level, models.WelcomeLetter.group_number).all()
+    return [_welcome_letter_response(letter) for letter in letters]
+
+
+@app.put("/api/admin/welcome-letters/{level}/{group}")
+def admin_save_welcome_letter(level: str, group: int, payload: schemas.WelcomeLetterUpsert, request: Request, db: Session = Depends(get_db)):
+    _require_admin(request)
+    level = level.upper()
+    if level not in {"A1", "A2", "B1"} or not 1 <= group <= 20:
+        raise HTTPException(status_code=404, detail="Unknown group.")
+    letter = db.query(models.WelcomeLetter).filter(models.WelcomeLetter.level == level, models.WelcomeLetter.group_number == group).first()
+    if not letter:
+        letter = models.WelcomeLetter(level=level, group_number=group)
+        db.add(letter)
+    letter.course_dates = payload.course_dates.strip()
+    letter.duration_weeks = payload.duration_weeks
+    letter.sessions = json.dumps([session.model_dump() for session in payload.sessions])
+    db.commit()
+    db.refresh(letter)
+    return _welcome_letter_response(letter)
 
 
 TEMP_PASSWORD_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
