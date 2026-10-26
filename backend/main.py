@@ -1711,6 +1711,54 @@ def delete_my_note(note_id: int, request: Request, db: Session = Depends(get_db)
     return {"detail": "Note deleted"}
 
 
+MAX_LOCKER_FILES = 50
+
+
+def _student_file_response(item: models.StudentFile) -> dict:
+    return {"id": item.id, "file_name": item.file_name, "file_url": item.file_url, "file_size": item.file_size, "created_at": item.created_at}
+
+
+@app.get("/api/my-files")
+def list_my_files(request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    items = db.query(models.StudentFile).filter(models.StudentFile.student_id == student.id).order_by(models.StudentFile.id.desc()).all()
+    return [_student_file_response(item) for item in items]
+
+
+@app.post("/api/my-files")
+async def upload_my_file(request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Keep a file in the student's personal locker (same file types as homework)."""
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    if db.query(models.StudentFile).filter(models.StudentFile.student_id == student.id).count() >= MAX_LOCKER_FILES:
+        raise HTTPException(status_code=400, detail=f"Your locker is full ({MAX_LOCKER_FILES} files). Delete a file to make room.")
+    original_name = os.path.basename(file.filename or "file")
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension not in HOMEWORK_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Upload a PDF, Word, PowerPoint, text, photo (JPG, PNG, HEIC) or audio (MP3, M4A) file.")
+    safe_stem = re.sub(r"[^a-zA-Z0-9_-]+", "_", os.path.splitext(original_name)[0]).strip("_")[:60] or "file"
+    stored_name = f"{student.student_id_code}_{int(datetime.now(timezone.utc).timestamp())}_{safe_stem}{extension}"
+    file_url, total_size = await store_upload(file, "locker", stored_name, max_size=20 * 1024 * 1024)
+    item = models.StudentFile(student_id=student.id, file_name=original_name[:255], file_url=file_url, file_size=_display_size(total_size))
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return _student_file_response(item)
+
+
+@app.delete("/api/my-files/{file_id}")
+def delete_my_file(file_id: int, request: Request, db: Session = Depends(get_db)):
+    auth_payload = _request_auth_payload(request, {roles.STUDENT})
+    student = _student_for_payload(auth_payload, db)
+    item = db.query(models.StudentFile).filter(models.StudentFile.id == file_id, models.StudentFile.student_id == student.id).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="File not found.")
+    db.delete(item)
+    db.commit()
+    return {"detail": "File deleted"}
+
+
 def _review_response(review: models.Review, include_status: bool = False) -> dict:
     data = {
         "id": review.id,
@@ -2807,3 +2855,25 @@ async def upload_image(
         "alt_text": db_img.alt_text,
         "message": "Image uploaded successfully to server storage."
     }
+
+
+# Website images the admin can replace. The page shows the newest upload for
+# each slot, or its built-in picture when there is none.
+SITE_IMAGE_SLOTS = {"hero"}
+
+
+@app.get("/api/site-images")
+def list_site_images(db: Session = Depends(get_db)):
+    images = db.query(models.ImageUpload).filter(models.ImageUpload.category.in_(SITE_IMAGE_SLOTS)).order_by(models.ImageUpload.id).all()
+    return {image.category: {"path": image.path, "alt_text": image.alt_text} for image in images}
+
+
+@app.delete("/api/site-images/{slot}")
+def reset_site_image(slot: str, request: Request, db: Session = Depends(get_db)):
+    """Go back to the slot's built-in picture."""
+    _require_admin(request)
+    if slot not in SITE_IMAGE_SLOTS:
+        raise HTTPException(status_code=404, detail="Unknown image slot.")
+    db.query(models.ImageUpload).filter(models.ImageUpload.category == slot).delete(synchronize_session=False)
+    db.commit()
+    return {"detail": "Image reset"}

@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Inbox
 } from "lucide-react";
+import { shrinkPhoto } from "../../shrinkPhoto";
 
 import { TRANSLATIONS } from "../../translations";
 import Logo from "../Logo";
@@ -229,9 +230,10 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   const [homeworkUploadingId, setHomeworkUploadingId] = useState<number | null>(null);
   const [homeworkStatus, setHomeworkStatus] = useState<{ id: number; type: "success" | "error"; message: string } | null>(null);
 
-  // File Upload State Simulation for Materials locker — no fake starter
-  // file; a brand new student has not uploaded anything yet.
-  const [uploadedFiles, setUploadedFiles] = useState<Array<{ name: string; type: string; size: string; date: string }>>([]);
+  // Personal locker: files the student keeps on their account.
+  const [lockerFiles, setLockerFiles] = useState<Array<{ id: number; file_name: string; file_url: string; file_size: string | null; created_at: string }>>([]);
+  const [lockerUploading, setLockerUploading] = useState(false);
+  const [lockerError, setLockerError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
 
   // Live class and catalog states loaded from the backend
@@ -282,6 +284,13 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
       setPersonalNotes(Array.isArray(data) ? data.map(toNote) : []);
     };
     load();
+  }, [student.studentIdCode]);
+
+  useEffect(() => {
+    fetch("/api/my-files")
+      .then((response) => (response.ok ? response.json() : []))
+      .then((data) => setLockerFiles(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, [student.studentIdCode]);
 
   useEffect(() => {
@@ -514,25 +523,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     setPersonalNotes((notes) => notes.filter((n) => n.id !== id));
   };
 
-  // Phone photos are often bigger than the 4 MB upload limit; shrink large
-  // JPG/PNG photos in the browser before sending. Other files go as they are.
-  const shrinkPhoto = async (file: File): Promise<File> => {
-    if (!/^image\/(jpeg|png)$/.test(file.type) || file.size <= 3 * 1024 * 1024) return file;
-    try {
-      const bitmap = await createImageBitmap(file);
-      const scale = Math.min(1, 2000 / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.round(bitmap.width * scale);
-      canvas.height = Math.round(bitmap.height * scale);
-      canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
-      if (!blob) return file;
-      return new File([blob], file.name.replace(/\.(png|jpe?g)$/i, "") + ".jpg", { type: "image/jpeg" });
-    } catch {
-      return file;
-    }
-  };
-
   const handleSubmitHomework = async (homework: HomeworkItem) => {
     const picked = homeworkFiles[homework.id];
     if (!picked) return;
@@ -560,35 +550,48 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     setHomeworkRefresh((n) => n + 1);
   };
 
-  // Direct Mail Send Handler
-  // Simulated drop upload handler for standard Locker
+  const uploadLockerFile = async (picked: File | undefined) => {
+    if (!picked || lockerUploading) return;
+    setLockerError(null);
+    setLockerUploading(true);
+    const file = await shrinkPhoto(picked);
+    if (file.size > 4 * 1024 * 1024) {
+      setLockerUploading(false);
+      setLockerError(d("This file is bigger than 4 MB. Try a smaller file, or a PDF or photo instead.", "Este archivo supera los 4 MB. Prueba con un archivo más pequeño, o un PDF o una foto."));
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/my-files", { method: "POST", body: formData }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setLockerUploading(false);
+    if (!response?.ok) {
+      setLockerError((typeof payload?.detail === "string" && payload.detail) || d("The upload failed. Check your connection and try again.", "La subida falló. Revisa tu conexión e inténtalo de nuevo."));
+      return;
+    }
+    setLockerFiles((files) => [payload, ...files]);
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      const newFile = {
-        name: file.name,
-        type: file.name.split(".").pop()?.toUpperCase() || "FILE",
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        date: new Date().toISOString().split("T")[0]
-      };
-      setUploadedFiles([newFile, ...uploadedFiles]);
-    }
+    uploadLockerFile(e.dataTransfer.files?.[0]);
   };
 
-  // Manual File Select Simulation for standard Locker
   const handleManualFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      const newFile = {
-        name: file.name,
-        type: file.name.split(".").pop()?.toUpperCase() || "FILE",
-        size: `${(file.size / (1024 * 1024)).toFixed(1)} MB`,
-        date: new Date().toISOString().split("T")[0]
-      };
-      setUploadedFiles([newFile, ...uploadedFiles]);
+    uploadLockerFile(e.target.files?.[0]);
+    e.target.value = "";
+  };
+
+  const handleDeleteLockerFile = async (id: number) => {
+    if (!window.confirm(d("Delete this file from your locker?", "¿Eliminar este archivo de tu casillero?"))) return;
+    setLockerError(null);
+    const response = await fetch(`/api/my-files/${id}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok && response?.status !== 404) {
+      setLockerError(d("That file could not be deleted. Try again.", "No se pudo eliminar ese archivo. Inténtalo de nuevo."));
+      return;
     }
+    setLockerFiles((files) => files.filter((f) => f.id !== id));
   };
 
   // Join a real provider-backed live class
@@ -1234,7 +1237,7 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   className="w-full bg-[#002626] hover:bg-slate-900 text-white rounded-xl py-2 font-bold font-sans text-xs tracking-wider cursor-pointer sm:col-span-3 transition flex items-center justify-center space-x-1"
                 >
                   <Plus size={14} />
-                  <span>{d("Pin new note to local workspace memory", "Fijar nueva nota en la memoria de trabajo")}</span>
+                  <span>{d("Save note", "Guardar nota")}</span>
                 </button>
               </form>
 
@@ -1275,7 +1278,6 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                 </h3>
               </div>
 
-              {/* Simulated upload target container */}
               <div
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
@@ -1288,28 +1290,47 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                   type="file"
                   id="student-locker-upload"
                   className="hidden"
+                  accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.png,.jpg,.jpeg,.heic,.mp3,.m4a"
+                  disabled={lockerUploading}
                   onChange={handleManualFileSelect}
                 />
                 <label htmlFor="student-locker-upload" className="block cursor-pointer space-y-1.5">
                   <Upload size={20} className="text-slate-400 mx-auto" />
                   <div className="space-y-0.5">
-                    <span className="text-xs text-slate-800 block font-bold">{d("Drag and drop mock files", "Arrastra y suelta archivos de prueba")}</span>
-                    <span className="text-[10px] text-slate-400 block">{d("or click to pick from disk to upload notes", "o haz clic para seleccionar del disco y subir notas")}</span>
+                    <span className="text-xs text-slate-800 block font-bold">
+                      {lockerUploading ? d("Uploading...", "Subiendo...") : d("Drag and drop a file here", "Arrastra y suelta un archivo aquí")}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">{d("or click to choose one. PDF, Word, PowerPoint, photos or audio, up to 4 MB.", "o haz clic para elegir uno. PDF, Word, PowerPoint, fotos o audio, hasta 4 MB.")}</span>
                   </div>
                 </label>
               </div>
 
-              {/* Uploaded folders list */}
+              {lockerError && (
+                <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700">{lockerError}</p>
+              )}
+
               <div className="space-y-2 max-h-[160px] overflow-y-auto text-left w-full">
-                {uploadedFiles.map((f, id) => (
-                  <div key={id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center text-xs">
-                    <div className="truncate pr-3 flex items-center min-w-0">
+                {lockerFiles.length === 0 && (
+                  <p className="text-center text-[11px] text-slate-400 py-2">{d("Your locker is empty. Files you add are saved to your account.", "Tu casillero está vacío. Los archivos que añadas se guardan en tu cuenta.")}</p>
+                )}
+                {lockerFiles.map((f) => (
+                  <div key={f.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center gap-2 text-xs">
+                    <a href={f.file_url} target="_blank" rel="noreferrer" className="truncate flex items-center min-w-0 hover:text-teal-700" title={d("Open or download", "Abrir o descargar")}>
                       <span className="text-[8px] font-mono font-bold uppercase rounded bg-slate-200 text-slate-600 px-1 py-0.5 mr-1.5 inline-block shrink-0">
-                        {f.type}
+                        {f.file_name.split(".").pop() || "FILE"}
                       </span>
-                      <span className="font-bold text-slate-800 truncate block">{f.name}</span>
+                      <span className="font-bold text-slate-800 truncate block">{f.file_name}</span>
+                    </a>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="text-[10px] font-mono text-slate-400">{f.file_size}</span>
+                      <button
+                        onClick={() => handleDeleteLockerFile(f.id)}
+                        className="p-1 text-slate-300 hover:text-rose-500 rounded-lg transition cursor-pointer"
+                        title={d("Delete file", "Eliminar archivo")}
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400 shrink-0">{f.size}</span>
                   </div>
                 ))}
               </div>

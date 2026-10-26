@@ -21,6 +21,7 @@ import {
   Star,
   X
 } from "lucide-react";
+import { shrinkPhoto } from "../../shrinkPhoto";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -41,8 +42,8 @@ interface AdminDashboardProps {
   blogPosts: any[];
   onAddBlogPost: (post: any) => void;
   onDeleteBlogPost: (id: string) => void;
-  onUpdateImage: (imgUpdate: any) => void;
-  customUploadedImages: any[];
+  onUpdateImage: (slot: string, path: string | null) => void;
+  imageOverrides: Record<string, string>;
   lang?: "EN" | "ES";
 }
 
@@ -271,7 +272,7 @@ export default function AdminDashboard({
   onAddBlogPost,
   onDeleteBlogPost,
   onUpdateImage,
-  customUploadedImages,
+  imageOverrides,
   lang = "EN"
 }: AdminDashboardProps) {
 
@@ -314,7 +315,9 @@ export default function AdminDashboard({
 
   // Target image replacement state
   const [replaceTargetSlot, setReplaceTargetSlot] = useState("Hero Banner");
-  const [replaceImageFile, setReplaceImageFile] = useState<string | null>(null);
+  const [replaceImageFile, setReplaceImageFile] = useState<File | null>(null);
+  const [imageSaving, setImageSaving] = useState(false);
+  const [imageStatus, setImageStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [replaceImageTitle, setReplaceImageTitle] = useState("");
   const [replaceAltText, setReplaceAltText] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -700,7 +703,7 @@ export default function AdminDashboard({
   // were removed: they had no corresponding image element on the page at
   // all, so selecting them and "saving" a replacement silently did nothing.
   const websiteImageSlots = [
-    { slot: "Hero Banner", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.webp" }
+    { slot: "Hero Banner", key: "hero", description: d("Main illustration showing study classrooms overlaying the hero section.", "Ilustración principal que muestra aulas de estudio superpuestas en la sección hero."), current: "/images/spanish_classroom_hero_1782078041463.webp" }
   ];
 
   // Submit Blog
@@ -727,52 +730,72 @@ export default function AdminDashboard({
     setBlogImage("");
   };
 
-  // Drag images mock
+  const pickReplacementImage = (file: File | undefined) => {
+    if (!file) return;
+    setImageStatus(null);
+    if (!/\.(jpe?g|png|webp)$/i.test(file.name)) {
+      setImageStatus({ type: "error", message: d("Use a JPG, PNG or WebP photo.", "Usa una foto JPG, PNG o WebP.") });
+      return;
+    }
+    setReplaceImageFile(file);
+    setReplaceImageTitle(file.name);
+    setReplaceAltText(`Iniciativa Ser o Estar Academy - ${replaceTargetSlot}`);
+  };
+
   const handleDropImageFile = (e: React.DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const file = e.dataTransfer.files[0];
-      const reader = new FileReader();
-      reader.onload = () => {
-        setReplaceImageFile(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-      setReplaceImageTitle(file.name);
-      setReplaceAltText(`Iniciativa Ser o Estar Academy - ${replaceTargetSlot}`);
-    }
+    pickReplacementImage(e.dataTransfer.files?.[0]);
   };
 
   const handleManualImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = () => {
-        setReplaceImageFile(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-      setReplaceImageTitle(file.name);
-      setReplaceAltText(`Iniciativa Ser o Estar Academy - ${replaceTargetSlot}`);
-    }
+    pickReplacementImage(e.target.files?.[0]);
+    e.target.value = "";
   };
 
-  // Commit Image swap
-  const handleSaveImageSwap = (e: React.FormEvent) => {
+  const selectedImageSlot = websiteImageSlots.find((s) => s.slot === replaceTargetSlot) || websiteImageSlots[0];
+
+  // Upload the photo; it replaces the slot's picture for every visitor.
+  const handleSaveImageSwap = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!replaceImageFile) return;
-
-    onUpdateImage({
-      slot: replaceTargetSlot,
-      fileData: replaceImageFile,
-      title: replaceImageTitle,
-      altText: replaceAltText,
-      dateUploaded: new Date().toISOString().split("T")[0]
-    });
-
-    alert(d(`¡Estupendo! Image slot "${replaceTargetSlot}" successfully updated which immediately overrides public illustration frames!`, `¡Estupendo! El espacio de imagen "${replaceTargetSlot}" se actualizó con éxito, lo que anula inmediatamente los marcos de ilustración públicos.`));
+    if (!replaceImageFile || imageSaving) return;
+    setImageSaving(true);
+    setImageStatus(null);
+    const file = await shrinkPhoto(replaceImageFile, 2400);
+    if (file.size > 4 * 1024 * 1024) {
+      setImageSaving(false);
+      setImageStatus({ type: "error", message: d("This photo is bigger than 4 MB. Try a smaller one.", "Esta foto supera los 4 MB. Prueba con una más pequeña.") });
+      return;
+    }
+    const formData = new FormData();
+    formData.append("category", selectedImageSlot.key);
+    formData.append("title", replaceImageTitle || file.name);
+    formData.append("alt_text", replaceAltText);
+    formData.append("file", file);
+    const response = await fetch("/api/images", { method: "POST", body: formData }).catch(() => null);
+    const payload = await response?.json().catch(() => null);
+    setImageSaving(false);
+    if (!response?.ok || !payload?.path) {
+      setImageStatus({ type: "error", message: (typeof payload?.detail === "string" && payload.detail) || d("The upload failed. Check your connection and try again.", "La subida falló. Revisa tu conexión e inténtalo de nuevo.") });
+      return;
+    }
+    onUpdateImage(selectedImageSlot.slot, payload.path);
+    setImageStatus({ type: "success", message: d("Saved. The new photo is now on the website.", "Guardado. La nueva foto ya está en la web.") });
     setReplaceImageFile(null);
     setReplaceImageTitle("");
     setReplaceAltText("");
+  };
+
+  const handleResetImage = async () => {
+    if (!window.confirm(d("Go back to the original photo?", "¿Volver a la foto original?"))) return;
+    setImageStatus(null);
+    const response = await fetch(`/api/site-images/${selectedImageSlot.key}`, { method: "DELETE" }).catch(() => null);
+    if (!response?.ok) {
+      setImageStatus({ type: "error", message: d("Could not reset the photo. Try again.", "No se pudo restablecer la foto. Inténtalo de nuevo.") });
+      return;
+    }
+    onUpdateImage(selectedImageSlot.slot, null);
+    setImageStatus({ type: "success", message: d("The original photo is back on the website.", "La foto original ha vuelto a la web.") });
   };
 
   return (
@@ -1122,7 +1145,24 @@ export default function AdminDashboard({
               </select>
             </div>
 
-            {/* Simulated Drag / Click image frame */}
+            <div className="flex items-center gap-3">
+              <img
+                src={imageOverrides[selectedImageSlot.slot] || selectedImageSlot.current}
+                alt=""
+                className="w-20 h-14 object-cover rounded-lg border border-slate-200 shrink-0"
+              />
+              <div className="text-[11px] text-slate-500 space-y-1 min-w-0">
+                <span className="block font-bold text-slate-700">
+                  {imageOverrides[selectedImageSlot.slot] ? d("Showing your uploaded photo", "Mostrando tu foto subida") : d("Showing the original photo", "Mostrando la foto original")}
+                </span>
+                {imageOverrides[selectedImageSlot.slot] && (
+                  <button type="button" onClick={handleResetImage} className="text-orange-600 hover:text-orange-500 font-bold cursor-pointer">
+                    {d("Go back to the original", "Volver a la original")}
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div
               onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
               onDragLeave={() => setDragging(false)}
@@ -1134,7 +1174,7 @@ export default function AdminDashboard({
               <input
                 type="file"
                 id="admin-image-override"
-                accept="image/*"
+                accept=".jpg,.jpeg,.png,.webp"
                 className="hidden"
                 onChange={handleManualImageFile}
               />
@@ -1159,14 +1199,19 @@ export default function AdminDashboard({
 
             <button
               type="submit"
-              disabled={!replaceImageFile}
+              disabled={!replaceImageFile || imageSaving}
               className={`w-full py-2.5 rounded-xl font-bold font-sans text-xs tracking-wide transition cursor-pointer flex justify-center items-center ${
-                replaceImageFile ? "bg-orange-600 hover:bg-orange-500 text-white shadow-xs" : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                replaceImageFile && !imageSaving ? "bg-orange-600 hover:bg-orange-500 text-white shadow-xs" : "bg-slate-100 text-slate-400 cursor-not-allowed"
               }`}
             >
               <Check size={14} className="mr-1.5" />
-              <span>{d("Deploy replacement image", "Desplegar imagen de reemplazo")}</span>
+              <span>{imageSaving ? d("Uploading...", "Subiendo...") : d("Put this photo on the website", "Poner esta foto en la web")}</span>
             </button>
+            {imageStatus && (
+              <p role={imageStatus.type === "error" ? "alert" : "status"} className={`rounded-xl border px-3 py-2 text-xs font-semibold ${imageStatus.type === "error" ? "border-rose-200 bg-rose-50 text-rose-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                {imageStatus.message}
+              </p>
+            )}
           </form>
         </div>
       </div>
