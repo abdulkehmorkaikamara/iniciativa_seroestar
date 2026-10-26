@@ -560,6 +560,8 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
     e.target.value = "";
   };
 
+  const [joinError, setJoinError] = useState<string | null>(null);
+
   const handleDeleteLockerFile = async (id: number) => {
     if (!window.confirm(d("Delete this file from your locker?", "¿Eliminar este archivo de tu casillero?"))) return;
     setLockerError(null);
@@ -574,15 +576,16 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
   // Join a real provider-backed live class
   const joinLiveClassRoom = async () => {
     if (!activeSession) return;
+    setJoinError(null);
 
     const joinResponse = await fetch(`/api/live-sessions/${activeSession.id}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ student_id_code: student.studentIdCode })
-    });
-    const joinPayload = await joinResponse.json();
-    if (!joinResponse.ok) {
-      alert(joinPayload.detail || d("Unable to join this class.", "No se puede unir a esta clase."));
+    }).catch(() => null);
+    const joinPayload = joinResponse ? await joinResponse.json().catch(() => ({})) : {};
+    if (!joinResponse?.ok) {
+      setJoinError(joinPayload.detail || d("Unable to join this class. Check your connection and try again.", "No se puede unir a esta clase. Revisa tu conexión e inténtalo de nuevo."));
       return;
     }
 
@@ -1039,6 +1042,9 @@ export default function StudentDashboard({ onExit, registeredStudent, onOpenChat
                           )
                         : d(`Scheduled for ${activeSession.startTime} (Sierra Leone Time). The join button becomes available up to 15 minutes before class.`, `Programada para ${activeSession.startTime} (hora de Sierra Leona). Puedes entrar hasta 15 minutos antes de la clase.`)}
                     </p>
+                    {joinError && (
+                      <p role="alert" className="text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{joinError}</p>
+                    )}
                   </div>
                 </div>
                 <button

@@ -390,6 +390,7 @@ export default function App() {
   // Built-in articles the admin removed are hidden for every visitor.
   const [publishedBlogPosts, setPublishedBlogPosts] = useState<BlogPost[]>([]);
   const [hiddenBuiltinIds, setHiddenBuiltinIds] = useState<string[]>([]);
+  const [blogActionError, setBlogActionError] = useState("");
   const customBlogPosts = useMemo(
     () => [...publishedBlogPosts, ...BLOG_POSTS.filter((post) => !hiddenBuiltinIds.includes(post.id))],
     [publishedBlogPosts, hiddenBuiltinIds]
@@ -733,9 +734,10 @@ export default function App() {
       { method: post.serverId ? "DELETE" : "PUT" }
     ).catch(() => null);
     if (!response?.ok && !(post.serverId && response?.status === 404)) {
-      alert(es ? "No se pudo eliminar el artículo. Inténtalo de nuevo." : "The article could not be deleted. Try again.");
+      setBlogActionError(es ? "No se pudo eliminar el artículo. Inténtalo de nuevo." : "The article could not be deleted. Try again.");
       return;
     }
+    setBlogActionError("");
     if (post.serverId) setPublishedBlogPosts((posts) => posts.filter(p => p.id !== post.id));
     else setHiddenBuiltinIds((ids) => [...ids, post.id]);
     if (activeBlog?.id === post.id) setActiveBlog(null);
@@ -744,9 +746,10 @@ export default function App() {
   const handleRestoreBlogPost = async (id: string) => {
     const response = await fetch(`/api/blog/hidden-builtins/${encodeURIComponent(id)}`, { method: "DELETE" }).catch(() => null);
     if (!response?.ok) {
-      alert(courseLang === "ES" ? "No se pudo restaurar el artículo. Inténtalo de nuevo." : "The article could not be brought back. Try again.");
+      setBlogActionError(courseLang === "ES" ? "No se pudo restaurar el artículo. Inténtalo de nuevo." : "The article could not be brought back. Try again.");
       return;
     }
+    setBlogActionError("");
     setHiddenBuiltinIds((ids) => ids.filter((hidden) => hidden !== id));
   };
 
@@ -874,6 +877,7 @@ export default function App() {
                   onDeleteBlogPost={handleDeleteBlogPost}
                   hiddenBuiltinPosts={hiddenBuiltinPosts}
                   onRestoreBlogPost={handleRestoreBlogPost}
+                  blogActionError={blogActionError}
                   onUpdateImage={handleUpdateImage}
                   imageOverrides={imageOverrides}
                   lang={courseLang}
@@ -1753,6 +1757,12 @@ export default function App() {
                   : "Descubre consejos prácticos de idiomas, claves culturales y recursos de memoria publicados por nuestros especialistas."}
               </p>
             </div>
+
+            {blogActionError && (
+              <p role="alert" className="max-w-xl mx-auto text-center text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                {blogActionError}
+              </p>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
               {customBlogPosts.map((sourcePost) => {

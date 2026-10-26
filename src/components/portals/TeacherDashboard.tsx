@@ -267,8 +267,12 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
     }
   };
 
+  // Shown on the page when a live classroom cannot start or end.
+  const [roomError, setRoomError] = useState<string | null>(null);
+
   // Launch live session
   const handleLaunchClass = async (cls: any) => {
+    setRoomError(null);
     try {
       const response = await fetch(`/api/live-sessions/${cls.id}/start`, { method: "POST" });
       const payload = await response.json().catch(() => ({}));
@@ -279,7 +283,7 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
       setScheduledClasses(prev => prev.map(c => c.id === cls.id ? { ...c, status: "Live" } : c));
       setProgressRefreshKey(prev => prev + 1);
     } catch (error: any) {
-      alert(error?.message || d("The live classroom could not start.", "No se pudo iniciar el aula en vivo."));
+      setRoomError(error?.message || d("The live classroom could not start.", "No se pudo iniciar el aula en vivo."));
     }
   };
 
@@ -352,10 +356,11 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
   const handleEndClass = async () => {
     if (!currentActiveRoom) return;
     const roomId = currentActiveRoom.id;
-    const response = await fetch(`/api/live-sessions/${roomId}/end`, { method: "POST" });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      alert(payload.detail || d("The live classroom could not be ended.", "No se pudo finalizar el aula en vivo."));
+    setRoomError(null);
+    const response = await fetch(`/api/live-sessions/${roomId}/end`, { method: "POST" }).catch(() => null);
+    if (!response?.ok) {
+      const payload = response ? await response.json().catch(() => ({})) : {};
+      setRoomError(payload.detail || d("The live classroom could not be ended. Check your connection and try again.", "No se pudo finalizar el aula en vivo. Revisa tu conexión e inténtalo de nuevo."));
       return;
     }
     setScheduledClasses(prev => prev.map(c => c.id === roomId ? { ...c, status: "Completed" } : c));
@@ -949,6 +954,9 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
                 <span>{d("End Session", "Terminar Sesión")}</span>
               </button>
             </div>
+            {roomError && (
+              <p role="alert" className="relative z-10 mx-4 mt-2 text-xs font-semibold text-rose-100 bg-rose-900/80 border border-rose-700 rounded-lg px-3 py-2">{roomError}</p>
+            )}
 
             {/* Embedded live room view */}
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center space-y-4">
@@ -1106,6 +1114,10 @@ export default function TeacherDashboard({ onExit, teacherProfile, lang = "EN" }
                   {startingNow ? d("Starting...", "Iniciando...") : d("Start class now", "Iniciar clase ahora")}
                 </button>
               </div>
+
+              {roomError && !currentActiveRoom && (
+                <p role="alert" className="text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{roomError}</p>
+              )}
 
               {/* Scheduled class lists */}
               <div className="space-y-3 max-h-[190px] overflow-y-auto">

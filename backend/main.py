@@ -268,24 +268,58 @@ def _send_student_welcome_email(recipient: str, full_name: str, student_code: st
     )
 
 
-def _password_reset_request_allowed(request: Request, email: str) -> bool:
-    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-    client_ip = request.client.host if request.client else "unknown"
-    email_key = hashlib.sha256(email.lower().encode("utf-8")).hexdigest()
-    key = f"{client_ip}:{email_key}"
-    window_seconds = 15 * 60
-    max_requests = 3
-    if not hasattr(_password_reset_request_allowed, "requests"):
-        _password_reset_request_allowed.requests = {}
-    requests = _password_reset_request_allowed.requests
-    entry = requests.get(key, {"count": 0, "first_ts": now_ts})
-    if now_ts - entry["first_ts"] > window_seconds:
-        entry = {"count": 0, "first_ts": now_ts}
-    if entry["count"] >= max_requests:
-        requests[key] = entry
+RATE_LIMIT_WINDOW = timedelta(minutes=15)
+# Failed sign-ins allowed per account, and per network (schools share one IP).
+LOGIN_FAILURES_PER_EMAIL = 8
+LOGIN_FAILURES_PER_IP = 40
+RESET_REQUESTS_PER_EMAIL = 3
+RESET_REQUESTS_PER_IP = 10
+
+
+def _client_ip(request: Request) -> str:
+    # Vercel puts the visitor's real address first in X-Forwarded-For.
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded.strip():
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _rate_key(value: str) -> str:
+    return hashlib.sha256(value.lower().strip().encode("utf-8")).hexdigest()
+
+
+def _rate_limited(db: Session, bucket: str, value: str, limit: int) -> bool:
+    since = datetime.now(tz=timezone.utc) - RATE_LIMIT_WINDOW
+    count = db.query(models.RateLimitEvent).filter(
+        models.RateLimitEvent.bucket == bucket,
+        models.RateLimitEvent.key_hash == _rate_key(value),
+        models.RateLimitEvent.created_at >= since,
+    ).count()
+    return count >= limit
+
+
+def _record_rate_event(db: Session, *events: tuple) -> None:
+    """Store (bucket, value) events in the database and drop ones older than a day."""
+    now = datetime.now(tz=timezone.utc)
+    db.query(models.RateLimitEvent).filter(models.RateLimitEvent.created_at < now - timedelta(days=1)).delete(synchronize_session=False)
+    for bucket, value in events:
+        db.add(models.RateLimitEvent(bucket=bucket, key_hash=_rate_key(value), created_at=now))
+    db.commit()
+
+
+def _clear_rate_events(db: Session, bucket: str, value: str) -> None:
+    db.query(models.RateLimitEvent).filter(
+        models.RateLimitEvent.bucket == bucket,
+        models.RateLimitEvent.key_hash == _rate_key(value),
+    ).delete(synchronize_session=False)
+    db.commit()
+
+
+def _password_reset_request_allowed(request: Request, email: str, db: Session) -> bool:
+    client_ip = _client_ip(request)
+    if _rate_limited(db, "reset-email", email, RESET_REQUESTS_PER_EMAIL) or _rate_limited(db, "reset-ip", client_ip, RESET_REQUESTS_PER_IP):
         return False
-    entry["count"] += 1
-    requests[key] = entry
+    _record_rate_event(db, ("reset-email", email), ("reset-ip", client_ip))
     return True
 
 
@@ -879,47 +913,7 @@ def _teacher_progress_payload(tutor: dict, db: Session) -> dict:
 # --- 1. Authentic Registration & Welcome System ---
 @app.post("/api/register", response_model=schemas.StudentResponse)
 def register_student(payload: schemas.StudentRegister, db: Session = Depends(get_db)):
-    profile = _create_student_account(payload, db)
-
-    # 3. Simulate Automated Welcome Message (English & Spanish)
-    welcome_email_body = f"""
-    --- AUTOMATED WELCOME CORRESPONDENCE ---
-    To: {payload.email}
-    Subject: Welcome to Iniciativa SER o ESTAR! / ¡Bienvenido/a a Iniciativa SER o ESTAR!
-
-    English:
-    Welcome {payload.full_name} to Iniciativa SER o ESTAR! We are excited to have you begin your Spanish learning journey with us. Your student account has been created successfully. Your Student ID code is {profile.student_id_code}.
-
-    Spanish:
-    ¡Bienvenido/a {payload.full_name} a Iniciativa SER o ESTAR! Estamos emocionados de acompañarte en tu camino de aprendizaje del español. Tu cuenta de estudiante ha sido creada correctamente. Tu código de estudiante es {profile.student_id_code}.
-    -----------------------------------------
-    """
-    print(welcome_email_body)  # Print to server terminal as demonstration
-
-    return profile
-
-
-@app.post("/api/migrate-students")
-def migrate_students(payload: List[schemas.StudentRegister], request: Request, db: Session = Depends(get_db)):
-    """
-    Accepts a list of student-like objects (matching `StudentRegister`) and creates
-    `User` + `StudentProfile` records for each, skipping existing emails.
-    Returns a summary of created and skipped entries.
-    """
-    _require_admin(request)
-    created = []
-    skipped = []
-
-    for p in payload:
-        existing_user = db.query(models.User).filter(models.User.email == p.email).first()
-        if existing_user:
-            skipped.append({"email": p.email, "reason": "exists"})
-            continue
-
-        profile = _create_student_account(p, db)
-        created.append({"email": p.email, "student_id_code": profile.student_id_code})
-
-    return {"created": created, "skipped": skipped, "created_count": len(created), "skipped_count": len(skipped)}
+    return _create_student_account(payload, db)
 
 
 @app.get("/api/admin/students")
@@ -1211,7 +1205,7 @@ def request_password_reset(payload: schemas.PasswordForgotRequest, request: Requ
     if not _email_configured():
         # Don't promise an email that can never arrive.
         return {"detail": PASSWORD_RESET_NO_EMAIL_RESPONSE, "email_enabled": False}
-    if not _password_reset_request_allowed(request, email):
+    if not _password_reset_request_allowed(request, email, db):
         return {"detail": PASSWORD_RESET_RESPONSE, "email_enabled": True}
 
     user = db.query(models.User).filter(
@@ -1268,31 +1262,21 @@ def reset_account_password(payload: schemas.PasswordResetRequest, response: Resp
 
 @app.post("/api/login")
 def login(request: Request, payload: schemas.LoginRequest, response: Response, db: Session = Depends(get_db)):
-    # Basic in-memory rate limiter per IP to reduce brute force risk
-    client_ip = request.client.host if request.client else "unknown"
-    now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-    window_seconds = 300
-    max_attempts = 6
-
-    if not hasattr(login, "attempts"):
-        login.attempts = {}
-
-    entry = login.attempts.get(client_ip, {"count": 0, "first_ts": now_ts})
-    # reset window
-    if now_ts - entry["first_ts"] > window_seconds:
-        entry = {"count": 0, "first_ts": now_ts}
-
-    if entry["count"] >= max_attempts:
-        raise HTTPException(status_code=429, detail="Too many login attempts. Try again later.")
+    # Limits are kept in the database so they hold across Vercel's server instances.
+    client_ip = _client_ip(request)
+    email = payload.username.strip().lower()
+    if _rate_limited(db, "login-email", email, LOGIN_FAILURES_PER_EMAIL) or _rate_limited(db, "login-ip", client_ip, LOGIN_FAILURES_PER_IP):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Wait 15 minutes, or use Forgot password to set a new one.",
+        )
 
     # Every portal authenticates the same way: look the account up in the
     # persistent database and compare against its stored bcrypt hash. There is
     # no environment-variable or in-memory credential path.
-    email = payload.username.strip().lower()
     user = db.query(models.User).filter(models.User.email.ilike(email)).first()
     if not user or not auth.verify_password(payload.password, user.hashed_password):
-        entry["count"] += 1
-        login.attempts[client_ip] = entry
+        _record_rate_event(db, ("login-email", email), ("login-ip", client_ip))
         raise HTTPException(
             status_code=401, detail="Incorrect email address or user password."
         )
@@ -1300,9 +1284,7 @@ def login(request: Request, payload: schemas.LoginRequest, response: Response, d
     if not user.is_active:
         raise HTTPException(status_code=403, detail="This account has been deactivated.")
 
-    # successful auth -> reset attempts
-    if client_ip in login.attempts:
-        del login.attempts[client_ip]
+    _clear_rate_events(db, "login-email", email)
 
     canonical_role = roles.normalize_role(user.role) or roles.STUDENT
     user.last_login_at = datetime.now(tz=timezone.utc)
