@@ -34,9 +34,49 @@
     <meta name="twitter:title" content="Iniciativa Ser o Estar | Spanish classes in Sierra Leone" />
     <meta name="twitter:description" content="Spanish classes in Sierra Leone, in partnership with the Spanish Embassy and four partner schools in Freetown." />
     <meta name="twitter:image" content="https://iseroestar.com/og-image.jpg" />
+    <!-- Tells search engines the site's name and who runs it, so a search for
+         "Iniciativa Ser o Estar" can be matched to this site. -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://iseroestar.com/#website",
+            "url": "https://iseroestar.com/",
+            "name": "Iniciativa Ser o Estar",
+            "alternateName": ["Iniciativa SER o ESTAR", "Ser o Estar", "iseroestar"],
+            "inLanguage": ["en", "es"],
+            "publisher": { "@id": "https://iseroestar.com/#organization" }
+          },
+          {
+            "@type": "EducationalOrganization",
+            "@id": "https://iseroestar.com/#organization",
+            "name": "Iniciativa Ser o Estar",
+            "alternateName": ["Iniciativa SER o ESTAR", "Ser o Estar"],
+            "url": "https://iseroestar.com/",
+            "logo": "https://iseroestar.com/apple-touch-icon.png",
+            "image": "https://iseroestar.com/og-image.jpg",
+            "description": "Spanish classes in Sierra Leone, in partnership with the Spanish Embassy and four partner schools in Freetown.",
+            "telephone": "+232 72 057646",
+            "address": { "@type": "PostalAddress", "addressLocality": "Freetown", "addressCountry": "SL" },
+            "areaServed": "Sierra Leone",
+            "knowsLanguage": ["es", "en"]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Shown until the app loads, and readable by search engines that don't run JavaScript. React replaces it. -->
+    <div id="root">
+      <main style="max-width:640px;margin:0 auto;padding:96px 16px;font-family:Inter,system-ui,sans-serif;color:#1e293b;text-align:center">
+        <h1 style="font-size:28px;line-height:1.2;margin:0 0 12px">Iniciativa Ser o Estar</h1>
+        <p style="font-size:16px;margin:0 0 8px">Spanish classes in Sierra Leone · Clases de español en Sierra Leona</p>
+        <p style="font-size:14px;color:#64748b;margin:0 0 16px">Online and in-person Spanish courses (A1 Beginner, A2 Elementary, B1 Intermediate) in partnership with the Spanish Embassy and four partner schools in Freetown.</p>
+        <p style="font-size:14px;margin:0"><a href="https://wa.me/23272057646" style="color:#0B4C9C">WhatsApp +232 72 057646</a></p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
